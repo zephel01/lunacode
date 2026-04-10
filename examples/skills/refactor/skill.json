@@ -1,0 +1,7 @@
+{
+  "name": "refactor",
+  "version": "1.0.0",
+  "description": "コードのリファクタリングを安全に実施する",
+  "triggers": ["refactor", "リファクタ", "リファクタリング", "改善", "整理", "cleanup"],
+  "category": "code"
+}

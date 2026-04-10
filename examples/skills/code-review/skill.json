@@ -1,0 +1,7 @@
+{
+  "name": "code-review",
+  "version": "1.0.0",
+  "description": "コードレビューを実施し、改善点を指摘する",
+  "triggers": ["review", "レビュー", "コードレビュー", "code review", "チェック"],
+  "category": "code"
+}
