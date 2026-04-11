@@ -2,6 +2,30 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { LLMProviderConfig } from "../providers/LLMProvider.js";
 
+export interface CheckpointConfig {
+  enabled?: boolean;
+  maxCheckpoints?: number;
+  autoCheckpoint?: boolean;
+}
+
+export interface ApprovalConfig {
+  mode?: "auto" | "selective" | "always";
+  showDiff?: boolean;
+  autoApproveReadOnly?: boolean;
+  timeoutSeconds?: number;
+}
+
+export interface MCPServerConfig {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+export interface MCPConfig {
+  servers?: MCPServerConfig[];
+}
+
 export interface LunaCodeConfig {
   // LLMプロバイダー設定
   llm: {
@@ -49,6 +73,14 @@ export interface LunaCodeConfig {
     enabled: boolean;
     tickIntervalSeconds: number;
   };
+  // チェックポイント設定（Phase 5）
+  checkpoint?: CheckpointConfig;
+  // 承認フロー設定（Phase 6）
+  approval?: ApprovalConfig;
+  // MCP設定（Phase 9）
+  mcp?: MCPConfig;
+  // 拡張設定（プラグイン等からの任意セクション）
+  [key: string]: unknown;
 }
 
 export class ConfigManager {
@@ -241,6 +273,14 @@ export class ConfigManager {
    */
   isProviderConfigured(): boolean {
     return this.configLoaded;
+  }
+
+  /**
+   * 設定セクションを名前で取得（Phase 5/6/9 等の拡張設定に対応）
+   * config.json の任意のトップレベルキーを取得できる
+   */
+  get(section: string): any {
+    return (this.config as Record<string, unknown>)[section] ?? undefined;
   }
 
   getAgentConfig() {

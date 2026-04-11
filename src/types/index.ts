@@ -269,3 +269,170 @@ export interface SkillMatch {
   matchedTriggers: string[];   // マッチしたトリガーワード
   relevance: number;           // 関連度スコア（0-1）
 }
+
+// ========================================
+// Phase 1: ストリーミング
+// ========================================
+
+// ストリーミングチャンクの型
+export interface StreamChunk {
+  type: "content" | "tool_call_start" | "tool_call_delta" | "tool_call_end" | "done" | "error";
+  delta?: string;
+  toolCallIndex?: number;
+  toolCall?: Partial<ToolCall>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+  error?: string;
+}
+
+// ストリーミングコールバック
+export interface StreamCallbacks {
+  onToken?: (token: string) => void;
+  onToolCall?: (toolCall: ToolCall) => void;
+  onUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
+  onError?: (error: string) => void;
+}
+
+// ========================================
+// Phase 7: Hooks（ライフサイクルイベント）
+// ========================================
+
+export type HookEvent =
+  | "session:start"
+  | "session:end"
+  | "tool:before"
+  | "tool:after"
+  | "tool:error"
+  | "iteration:start"
+  | "iteration:end"
+  | "response:complete"
+  | "mcp:connected"
+  | "mcp:disconnected"
+  | "mcp:tool_called"
+  | "mcp:error";
+
+export interface HookContext {
+  event: HookEvent;
+  timestamp: number;
+  sessionId: string;
+  iteration?: number;
+  toolName?: string;
+  toolArgs?: Record<string, unknown>;
+  toolResult?: { success: boolean; output: string; error?: string };
+  error?: Error;
+  abort?: () => void;
+  modifyArgs?: (args: Record<string, unknown>) => void;
+}
+
+export interface HookDefinition {
+  name: string;
+  event: HookEvent | HookEvent[];
+  handler: (context: HookContext) => Promise<void> | void;
+  priority?: number;
+  enabled?: boolean;
+}
+
+// ========================================
+// Phase 8: サブエージェント
+// ========================================
+
+export type SubAgentRole = "explorer" | "worker" | "reviewer";
+
+export interface SubAgentConfig {
+  id?: string;
+  role: SubAgentRole;
+  task: string;
+  model?: string;
+  maxIterations?: number;
+  timeout?: number;
+}
+
+export interface SubAgentResult {
+  id: string;
+  role: SubAgentRole;
+  task: string;
+  status: "completed" | "failed" | "timeout";
+  output: string;
+  filesModified: string[];
+  toolsUsed: string[];
+  iterations: number;
+  durationMs: number;
+  error?: string;
+}
+
+// ========================================
+// Phase 5: チェックポイント＆ロールバック
+// ========================================
+
+export interface Checkpoint {
+  id: string;
+  iteration: number;
+  timestamp: number;
+  description: string;
+  commitHash?: string;
+  filesChanged: string[];
+}
+
+export interface CheckpointManagerConfig {
+  enabled: boolean;
+  strategy: "stash" | "branch";
+  maxCheckpoints: number;
+  autoCheckpoint: boolean;
+}
+
+// ========================================
+// Phase 6: Diff プレビュー＆承認フロー
+// ========================================
+
+export type ApprovalMode = "auto" | "confirm" | "selective";
+export type ApprovalResult = "approved" | "rejected" | "edited";
+
+export interface ApprovalConfig {
+  mode: ApprovalMode;
+  showDiff: boolean;
+  autoApproveReadOnly: boolean;
+  timeoutSeconds: number;
+}
+
+export interface ApprovalRequest {
+  toolName: string;
+  args: Record<string, unknown>;
+  riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  diff?: string;
+  description: string;
+}
+
+// ========================================
+// Phase 9: MCP (Model Context Protocol)
+// ========================================
+
+export type MCPTransport = "stdio" | "sse";
+
+export interface MCPServerConfig {
+  name: string;
+  transport: MCPTransport;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+}
+
+export interface MCPTool {
+  name: string;
+  description: string;
+  inputSchema: {
+    type: "object";
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+}
+
+export interface MCPResource {
+  uri: string;
+  name: string;
+  mimeType?: string;
+  description?: string;
+}
