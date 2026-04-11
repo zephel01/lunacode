@@ -321,6 +321,142 @@ echo $TELEGRAM_CHAT_ID
 
 ---
 
+## MCP サーバー連携
+
+### MCP サーバーに接続できない
+
+**症状**: `lunacode mcp connect` または設定後に MCP ツールが使えない。
+
+**対処**:
+
+1. MCP サーバープロセスが起動しているか確認:
+```bash
+# npx ベースのサーバー例
+npx -y @modelcontextprotocol/server-filesystem /path/to/dir
+```
+
+2. `config.json` の MCP 設定を確認（`mcpServers` キー）:
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    }
+  }
+}
+```
+
+3. JSON-RPC 通信を確認（MCP は stdio 経由で動作します）。コマンドが正しいか、パスに誤りがないか確認してください。
+
+### MCP ツールが LunaCode のツール一覧に表示されない
+
+**対処**:
+
+1. `lunacode config show` で `mcpServers` セクションが存在するか確認
+2. セッションを再起動（MCP ツールはセッション開始時に登録されます）
+3. MCP サーバーのログを確認し、`tools/list` レスポンスが正常に返っているか確認
+
+**命名規則**: MCP ツールは `mcp_{サーバー名}_{ツール名}` の形式で登録されます（例: `mcp_filesystem_read_file`）。
+
+### MCP サーバーとの通信がタイムアウトする
+
+**症状**: MCP ツール呼び出しが30秒後にタイムアウトエラーになる。
+
+**対処**:
+
+1. MCP サーバーのレスポンス速度を確認
+2. サーバー側のログでエラーが出ていないか確認
+3. ネットワークが関係する場合（リモートMCPサーバー等）は接続を確認
+
+---
+
+## チェックポイント＆ロールバック
+
+### チェックポイントが作成されない
+
+**症状**: `lunacode undo` や `lunacode rollback` が「チェックポイントがありません」と返す。
+
+**対処**:
+
+1. プロジェクトが Git リポジトリかどうか確認:
+```bash
+git status
+```
+Git リポジトリでない場合は `git init` が必要です。チェックポイントは Git コミットとして保存されます。
+
+2. 作業ディレクトリに未コミットの変更がある場合、AgentLoop がチェックポイントを作成できない可能性があります。一度コミットしてから再実行してください。
+
+3. `config.json` のチェックポイント設定を確認:
+```json
+{
+  "agent": {
+    "checkpoint": {
+      "enabled": true,
+      "maxCheckpoints": 10
+    }
+  }
+}
+```
+
+### `lunacode undo` で意図しない状態に戻った
+
+**対処**:
+
+1. チェックポイント一覧を確認:
+```bash
+lunacode checkpoint list
+```
+
+2. 特定のチェックポイントに戻る:
+```bash
+lunacode rollback <checkpoint-id>
+```
+
+3. `git reflog` でコミット履歴を確認して手動復元することも可能です:
+```bash
+git reflog
+git reset --hard <commit-hash>
+```
+
+---
+
+## Diff プレビュー＆承認フロー
+
+### Diff が表示されない / 変更が自動で適用されてしまう
+
+**症状**: ファイル変更前に確認ダイアログが表示されない。
+
+**対処**:
+
+1. `config.json` の承認モード設定を確認:
+```json
+{
+  "agent": {
+    "approval": {
+      "mode": "selective"
+    }
+  }
+}
+```
+`mode` が `"auto"` になっている場合は `"selective"` または `"confirm"` に変更してください。
+
+2. 承認モードの種類:
+   - `auto` — すべての変更を自動承認（確認なし）
+   - `confirm` — すべての変更で確認を求める
+   - `selective` — リスクレベルに応じて判断（LOW = 自動、MEDIUM/HIGH = 確認）
+
+### Diff の内容が正しく表示されない
+
+**症状**: unified diff の表示が崩れている、または文字化けしている。
+
+**対処**:
+
+1. ターミナルが ANSI カラーコードに対応しているか確認（`$TERM` 環境変数）
+2. ファイルのエンコーディングが UTF-8 かどうか確認（UTF-8 以外のエンコーディングは文字化けの原因になります）
+
+---
+
 ## FAQ
 
 ### Q: LunaCode は Claude Code と同じですか？
@@ -340,13 +476,19 @@ echo $TELEGRAM_CHAT_ID
 
 ### Q: メモリはどこに保存されますか？
 
-プロジェクトルート直下に以下のファイル/ディレクトリが作成されます:
+プロジェクトルート直下の `.kairos/` ディレクトリ内に保存されます:
 
 ```
-./MEMORY.md          # メインメモリ
-./topics/            # トピックファイル
-./logs/              # 日別ログ
-./config.json        # 設定ファイル（手動作成）
+.kairos/
+├── MEMORY.md        # メインメモリ
+├── topics/          # トピック別ファイル（*.md）
+├── logs/            # 日別ログ（*.log）
+├── config.json      # 設定ファイル（手動作成）
+├── hooks.json       # ライフサイクルフック定義（手動作成）
+├── dreams/          # AutoDream ログ
+├── daemon.pid       # デーモンプロセスID
+├── activity.json    # 最終アクティビティ時刻
+└── sessions.json    # セッション情報
 ```
 
 ### Q: 複数のプロジェクトで使えますか？
@@ -378,7 +520,7 @@ pm2 start "lunacode daemon start" --name lunacode-daemon
 
 - 認証システムは開発途中です
 - BashTool のコマンドフィルタはブラックリスト方式で完全ではありません
-- パスワードハッシュは SHA-256 を使用しています（bcrypt/Argon2 への移行を予定）
+- パスワードハッシュは scrypt を使用しています
 
 ---
 

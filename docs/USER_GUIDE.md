@@ -1,263 +1,269 @@
-# User Guide
+# ユーザーガイド
 
-Welcome to LunaCode! This guide will help you get started and make the most of LunaCode's features.
+LunaCode へようこそ！このガイドでは、LunaCode の導入から高度な機能の活用までを説明します。
 
-## 📋 Table of Contents
+## 目次
 
-1. [Getting Started](#getting-started)
-2. [Basic Usage](#basic-usage)
-3. [Advanced Features](#advanced-features)
-4. [Configuration](#configuration)
-5. [Best Practices](#best-practices)
-6. [Tips & Tricks](#tips--tricks)
+1. [はじめに](#はじめに)
+2. [基本的な使い方](#基本的な使い方)
+3. [高度な機能](#高度な機能)
+4. [設定](#設定)
+5. [ベストプラクティス](#ベストプラクティス)
+6. [ヒントとコツ](#ヒントとコツ)
+7. [ユースケース](#ユースケース)
 
-## 🚀 Getting Started
+## はじめに
 
-### Quick Start
+### クイックスタート
 
-1. **Install LunaCode**
+1. **LunaCode のインストール**
 
 ```bash
-# Using Bun (recommended)
+# Bun を使用（推奨）
 curl -fsSL https://bun.sh/install | bash
 
-# Or globally
+# グローバルインストール
 bun install --global
 ```
 
-2. **Choose Your LLM Provider**
+2. **LLM プロバイダーの選択**
 
-LunaCode supports multiple LLM providers:
+LunaCode は複数の LLM プロバイダーに対応しています。
 
-**For maximum performance (Online):**
+**最大パフォーマンス（オンライン）:**
 
 ```bash
 export OPENAI_API_KEY=your-key
-lunacode "Your first query"
+lunacode "最初のクエリ"
 ```
 
-**For complete privacy (Offline):**
+**完全なプライバシー（オフライン）:**
 
 ```bash
-# Install Ollama
+# Ollama のインストール
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Pull a model
-ollama pull llama2
+# モデルの取得
+ollama pull llama3.1
 
-# Configure LunaCode
+# LunaCode の設定
 export OLLAMA_BASE_URL=http://localhost:11434
-export OLLAMA_MODEL=llama2
-lunacode "Your first query"
+export OLLAMA_MODEL=llama3.1
+lunacode "最初のクエリ"
 ```
 
-**For the best of both worlds (Local with cloud):**
+**ローカルとクラウドの併用:**
 
 ```bash
-# Install LM Studio from https://lmstudio.ai
+# LM Studio を https://lmstudio.ai からインストール
 export LMSTUDIO_BASE_URL=http://localhost:1234/v1
-lunacode "Your first query"
+lunacode "最初のクエリ"
 ```
 
-3. **Run Your First Query**
+3. **最初のクエリを実行**
 
 ```bash
-lunacode "Create a simple function in JavaScript"
+lunacode "JavaScript でシンプルな関数を作成して"
 ```
 
-That's it! LunaCode will handle the rest.
+LunaCode が自動的にタスクを処理します。
 
-### Project Setup
+### プロジェクトの初期設定
 
-When you run LunaCode in a directory for the first time, it creates:
+LunaCode をディレクトリで初めて実行すると、プロジェクトルート直下に `.kairos/` ディレクトリが作成され、すべてのデータがその中に保存されます:
 
 ```
 your-project/
-├── .kairos/              # Configuration and data directory
-│   ├── config.json      # Project configuration
-│   ├── MEMORY.md         # Main memory file
-│   ├── topics/           # Organized topics
-│   ├── logs/             # Activity logs
-│   ├── daemon.pid         # Daemon process ID
-│   └── ...              # Other data files
+├── .kairos/              # LunaCode データディレクトリ（すべてここに格納）
+│   ├── config.json      # プロジェクト設定（手動作成）
+│   ├── MEMORY.md        # メインメモリファイル
+│   ├── topics/          # トピック別ファイル（*.md）
+│   ├── logs/            # 日別アクティビティログ（*.log）
+│   ├── hooks.json       # ライフサイクルフック定義（手動作成）
+│   ├── daemon.pid       # デーモンプロセスID（起動時に自動作成）
+│   ├── dreams/          # AutoDream ログ
+│   ├── activity.json    # 最終アクティビティ時刻
+│   └── sessions.json    # セッション情報
 └── your-code-files
 ```
 
-## 📝 Basic Usage
+> メモリ関連ファイル（MEMORY.md, topics/, logs/）はすべて `.kairos/` 配下に保存されます。`config.json` や `hooks.json` は手動で作成する設定ファイルです。
 
-### Coding Assistance
+## 基本的な使い方
 
-**Simple query:**
+### コーディング支援
 
-```bash
-lunacode "Create a REST API endpoint for user management"
-```
-
-**Complex task:**
+**シンプルなクエリ:**
 
 ```bash
-lunacode "Implement a full-stack application with authentication, database, and frontend"
+lunacode "ユーザー管理用の REST API エンドポイントを作成して"
 ```
 
-**Follow-up question:**
+**複雑なタスク:**
 
 ```bash
-lunacode "Add pagination to the user list API"
+lunacode "認証、データベース、フロントエンドを含むフルスタックアプリケーションを実装して"
 ```
 
-### Memory Management
+**フォローアップ質問:**
 
-**Check memory status:**
+```bash
+lunacode "ユーザー一覧 API にページネーションを追加して"
+```
+
+### メモリ管理
+
+**メモリの状態確認:**
 
 ```bash
 lunacode memory stats
 ```
 
-**Search memory:**
+**メモリの検索:**
 
 ```bash
-lunacode memory search "authentication"
+lunacode memory search "認証"
 ```
 
-**Compact memory:**
+**メモリの圧縮:**
 
 ```bash
 lunacode memory compact
 ```
 
-**View topics:**
+**トピックの表示:**
 
 ```bash
 lunacode memory topics
 ```
 
-### Daemon Mode
+### デーモンモード
 
-**Start daemon (background):**
+**デーモンの起動（バックグラウンド）:**
 
 ```bash
 lunacode daemon start
 ```
 
-**Check daemon status:**
+**デーモンの状態確認:**
 
 ```bash
 lunacode daemon status
 ```
 
-**View daemon logs:**
+**デーモンのログ表示:**
 
 ```bash
 lunacode daemon logs
 ```
 
-**Stop daemon:**
+**デーモンの停止:**
 
 ```bash
 lunacode daemon stop
 ```
 
-### Dream Mode
+### ドリームモード
 
-**Run dream manually:**
+**手動でドリームを実行:**
 
 ```bash
 lunacode dream run
 ```
 
-**Check dream status:**
+**ドリームの状態確認:**
 
 ```bash
 lunacode dream status
 ```
 
-**View dream history:**
+**ドリーム履歴の表示:**
 
 ```bash
 lunacode dream history
 ```
 
-### Buddy Mode
+### バディモード
 
-**Check your pet:**
+**ペットの情報確認:**
 
 ```bash
 lunacode buddy info
 ```
 
-**Call your pet:**
+**ペットを呼ぶ:**
 
 ```bash
 lunacode buddy call ミケ
 ```
 
-**Talk to your pet:**
+**ペットと会話:**
 
 ```bash
 lunacode buddy talk こんにちは！
 ```
 
-**Feed your pet:**
+**ペットにごはん:**
 
 ```bash
 lunacode buddy feed
 ```
 
-**Play with your pet:**
+**ペットと遊ぶ:**
 
 ```bash
 lunacode buddy play
 ```
 
-**Put your pet to sleep:**
+**ペットを寝かせる:**
 
 ```bash
 lunacode buddy sleep
 ```
 
-**Create a new pet:**
+**新しいペットを作成:**
 
 ```bash
 lunacode buddy create --type cat --name タマ
 ```
 
-**View available pet types:**
+**利用可能なペットタイプの表示:**
 
 ```bash
 lunacode buddy types
 ```
 
-## 🎯 Advanced Features
+## 高度な機能
 
-### Multi-Agent Coordination
+### マルチエージェント連携
 
-LunaCode can run multiple agents in parallel:
+LunaCode は複数のエージェントを並列実行できます。
 
-1. **Start the coordinator:**
+1. **コーディネーターの起動:**
 
 ```bash
 lunacode daemon start
 ```
 
-2. **Add specialized workers:**
-   LunaCode automatically creates workers for different tasks
+2. **専門ワーカーの追加:**
+   タスクに応じて LunaCode が自動的にワーカーを作成します。
 
-3. **Monitor activity:**
+3. **アクティビティの監視:**
 
 ```bash
 lunacode daemon status
 ```
 
-### Parallel Tool Execution
+### 並列ツール実行
 
-When working on complex tasks, LunaCode can execute multiple tools simultaneously for faster results.
+複雑なタスクを処理する際、LunaCode は複数のツールを同時実行してより高速に結果を返します。
 
-### Advanced Memory Management
+### メモリの高度な管理
 
-**Custom compaction:**
+**カスタム圧縮設定:**
 
-```typescript
-// In your config.json
+```json
+// .kairos/config.json
 {
   "memory": {
     "compaction": {
@@ -270,12 +276,12 @@ When working on complex tasks, LunaCode can execute multiple tools simultaneousl
 }
 ```
 
-### Notification System
+### 通知システム
 
-**Configure notifications:**
+**通知の設定:**
 
 ```json
-// In .kairos/config.json
+// .kairos/config.json
 {
   "notifications": {
     "enabled": true,
@@ -289,10 +295,10 @@ When working on complex tasks, LunaCode can execute multiple tools simultaneousl
 }
 ```
 
-**Setup mobile notifications:**
+**モバイル通知の設定:**
 
-1. Get Pushover API key from https://pushover.net
-2. Add to config:
+1. https://pushover.net から Pushover API キーを取得
+2. 設定に追加:
 
 ```json
 {
@@ -305,43 +311,43 @@ When working on complex tasks, LunaCode can execute multiple tools simultaneousl
 }
 ```
 
-### Access Control (Enterprise)
+### アクセス制御（エンタープライズ向け）
 
-**Create users:**
+**ユーザーの追加:**
 
 ```bash
 lunacode admin add-user username --role user
 ```
 
-**Manage permissions:**
+**権限の管理:**
 
 ```bash
 lunacode admin policy create --name "Development" --role user
 ```
 
-**View audit log:**
+**監査ログの表示:**
 
 ```bash
 lunacode admin audit --limit 100
 ```
 
-### Sandbox Environment
+### サンドボックス環境
 
-**Execute commands safely:**
+**コマンドの安全な実行:**
 
 ```bash
 lunacode sandbox exec "npm install"
 ```
 
-**Check execution history:**
+**実行履歴の確認:**
 
 ```bash
 lunacode sandbox history
 ```
 
-### Undercover Mode
+### アンダーカバーモード
 
-For commercial use, hide LunaCode's origins:
+商用利用時に LunaCode の出自を隠すモードです:
 
 ```json
 {
@@ -355,9 +361,275 @@ For commercial use, hide LunaCode's origins:
 }
 ```
 
-## ⚙️ Configuration
+### ストリーミング応答
 
-### Environment Variables
+LunaCode は Ollama のストリーミングレスポンスに対応しています。LLM の応答がリアルタイムで表示され、待ち時間が大幅に短縮されます。ストリーミングは Ollama プロバイダーで自動的に有効になります。
+
+### コンテキストウィンドウ管理
+
+長い会話でもコンテキストが自動的に管理されます。モデルのコンテキスト長に応じて古いメッセージが自動でトリミングされ、システムメッセージは常に保持されます。
+
+対応モデルのコンテキスト長:
+
+```
+llama3.1           — 131,072 tokens
+llama3.1:8b        — 131,072 tokens
+qwen2.5:14b        — 131,072 tokens
+gemma4:e4b         — 131,072 tokens
+qwen3.5:4b         —  32,768 tokens
+mistral:7b         —  32,768 tokens
+codellama:13b      —  16,384 tokens
+deepseek-coder:6.7b —  16,384 tokens
+（未登録モデル）     —   8,192 tokens（デフォルト）
+```
+
+### プロバイダーフォールバック
+
+複数の LLM プロバイダーを設定している場合、1つのプロバイダーが障害を起こしても自動的に別のプロバイダーにフォールバックします。サーキットブレーカーパターンにより、障害のあるプロバイダーへの不要なリクエストを防ぎます。
+
+設定例:
+```json
+{
+  "llm": {
+    "providers": [
+      { "type": "ollama", "baseUrl": "http://localhost:11434", "model": "llama3.1" },
+      { "type": "ollama", "baseUrl": "http://backup:11434", "model": "qwen2.5:14b" }
+    ],
+    "fallback": {
+      "failureThreshold": 3,
+      "resetTimeSeconds": 60
+    }
+  }
+}
+```
+
+### モデル自動ルーティング
+
+タスクの複雑度に応じて、軽量モデルと高性能モデルを自動的に切り替えます。
+
+- **軽量タスク** — ファイル一覧、簡単な質問、ヘルプ要求 → 軽量モデル（高速応答）
+- **複雑タスク** — リファクタリング、設計、デバッグ、テスト作成 → 高性能モデル（高品質応答）
+
+設定例:
+```json
+{
+  "llm": {
+    "routing": {
+      "lightModel": { "type": "ollama", "model": "qwen2.5:1.5b" },
+      "heavyModel": { "type": "ollama", "model": "llama3.1" }
+    }
+  }
+}
+```
+
+### ライフサイクルフック
+
+エージェントの動作をカスタマイズするためのフックシステムです。イベントの前後にカスタム処理を挿入できます。
+
+`.kairos/hooks.json` にフック定義を配置します:
+```json
+{
+  "hooks": [
+    {
+      "name": "log-tool-usage",
+      "event": "tool:after",
+      "priority": 10,
+      "command": "echo '[${toolName}] executed on ${filePath}' >> .kairos/tool-log.txt"
+    },
+    {
+      "name": "lint-on-write",
+      "event": "tool:after",
+      "priority": 5,
+      "condition": {
+        "toolName": ["write_file"],
+        "filePattern": "*.ts"
+      },
+      "command": "npx eslint ${filePath} --fix"
+    }
+  ]
+}
+```
+
+対応イベント（11種）:
+- `session:start` — セッション開始時
+- `session:end` — セッション終了時
+- `tool:before` — ツール実行前（abort でキャンセル可、modifyArgs で引数変更可）
+- `tool:after` — ツール実行後
+- `tool:error` — ツール実行エラー時
+- `iteration:start` — イテレーション開始時
+- `iteration:end` — イテレーション終了時
+- `response:complete` — LLM 応答完了時
+- `mcp:connected` — MCP サーバー接続時
+- `mcp:disconnected` — MCP サーバー切断時
+- `mcp:tool_called` — MCP ツール呼び出し時
+
+### サブエージェント委譲
+
+複雑なタスクを複数のサブエージェントに分割して並列実行できます。各サブエージェントにはロールに基づくツール権限が設定されます。
+
+ロール:
+- **explorer** — 読み取り専用（read_file, glob, grep）。コードの調査・分析に使用
+- **worker** — 全ツール使用可。ファイル作成・編集などの実作業に使用
+- **reviewer** — 読み取り + bash。コードレビュー・テスト実行に使用
+
+エージェントが自動的に `delegate_task` ツールを使用してサブタスクを委譲します（最大6タスク、デフォルト並列数3）。
+
+### チェックポイント＆ロールバック
+
+ファイル変更操作（write_file, edit_file, bash）の実行前に自動でチェックポイントを作成します。問題が発生した場合に直前の状態に戻せます。
+
+設定（`.kairos/config.json`）:
+
+```json
+{
+  "checkpoint": {
+    "enabled": true,
+    "strategy": "branch",
+    "maxCheckpoints": 50,
+    "autoCheckpoint": true
+  }
+}
+```
+
+主な操作:
+- **自動保存** — write_file/edit_file/bash 実行前に自動でスナップショット作成
+- **undo** — 直前のチェックポイントの状態に戻す
+- **rollback** — 指定した任意のチェックポイントまで戻す
+- **diff** — チェックポイント間の変更差分を表示
+
+> Git リポジトリ内でのみ動作します。セッション用の一時ブランチが自動作成され、終了時にクリーンアップされます。
+
+### Diff プレビュー＆承認フロー
+
+ファイル変更前に unified diff をプレビュー表示し、ユーザーの承認を求めます。
+
+設定（`.kairos/config.json`）:
+
+```json
+{
+  "approval": {
+    "mode": "selective",
+    "showDiff": true,
+    "autoApproveReadOnly": true,
+    "timeoutSeconds": 60
+  }
+}
+```
+
+承認モード:
+- **auto** — すべての操作を自動承認（高速だが注意が必要）
+- **confirm** — すべての操作で確認を求める（最も安全）
+- **selective**（推奨） — リスクレベルに応じて判断。read-only 操作は自動承認、HIGH リスク操作（bash, rm 等）は確認を要求
+
+リスクレベル:
+- **LOW** — 読み取り専用（read_file, glob, grep, git status 等）
+- **MEDIUM** — ファイル書き込み（write_file, edit_file）
+- **HIGH** — シェル実行（bash）、システム変更
+
+### MCP サーバー連携
+
+外部の MCP（Model Context Protocol）サーバーと連携して、追加ツールを動的に利用できます。
+
+設定（`.kairos/config.json`）:
+
+```json
+{
+  "mcp": {
+    "servers": [
+      {
+        "name": "filesystem",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+      },
+      {
+        "name": "github",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": { "GITHUB_TOKEN": "ghp_..." }
+      }
+    ]
+  }
+}
+```
+
+MCP サーバーのツールは `mcp_{サーバー名}_{ツール名}` の形式で自動登録されます。セッション開始時に設定されたサーバーへ自動接続し、セッション終了時に自動切断されます。
+
+### スキルシステム
+
+スキルとは、`.kairos/skills/` 以下に配置するカスタム処理モジュールです。特定のキーワードに反応して自動で実行されます。エージェントが「テスト実行」「デプロイ」などのキーワードを検出すると、対応するスキルスクリプトを自動呼び出しします。
+
+**スキルの配置場所**:
+
+```
+.kairos/
+└── skills/
+    ├── test-runner/        # スキル名（ディレクトリ）
+    │   ├── skill.json      # スキル定義
+    │   └── run.sh          # 実行スクリプト
+    └── deploy/
+        ├── skill.json
+        └── run.sh
+```
+
+**スキル定義（`skill.json`）の例**:
+
+```json
+{
+  "name": "test-runner",
+  "description": "プロジェクトのテストを実行する",
+  "triggers": ["テストを実行", "テスト", "bun test", "run tests"],
+  "script": "run.sh"
+}
+```
+
+**実行スクリプト（`run.sh`）の例**:
+
+```bash
+#!/bin/bash
+cd "$PROJECT_ROOT"
+bun test --reporter=verbose
+```
+
+スキルが実行されると、結果がエージェントの Observation としてフィードバックされます。`triggers` に指定したキーワードがユーザーの指示に含まれると自動検出されます。
+
+### TUI（ターミナル UI）
+
+LunaCode には React Ink ベースのリッチな TUI が含まれています。標準の CLI モードに加え、視覚的に整理された UI で操作できます。
+
+**起動方法**:
+
+```bash
+lunacode tui             # TUI モードで起動
+lunacode tui --status    # ステータスパネル表示
+```
+
+**主な表示要素**:
+
+| 要素 | 説明 |
+|---|---|
+| エージェント入力欄 | 指示を入力するプロンプト |
+| 会話ビュー | エージェントとのやり取り履歴 |
+| ツール実行パネル | リアルタイムのツール実行状況 |
+| ステータスバー | 現在のモデル・イテレーション数・メモリ使用量 |
+| Diff ビュー | 承認フロー有効時のファイル変更プレビュー |
+
+**キーバインド**:
+
+| キー | 操作 |
+|---|---|
+| `Enter` | メッセージ送信 |
+| `Ctrl+C` | 現在の操作をキャンセル |
+| `Ctrl+D` | TUI を終了 |
+| `Tab` | 次のパネルにフォーカス移動 |
+| `Esc` | ダイアログを閉じる |
+
+> **注意**: TUI は Bun 実行時のみサポートされます。Node.js での実行時は標準 CLI モードにフォールバックします。
+
+## 設定
+
+### 環境変数
 
 **OpenAI:**
 
@@ -370,7 +642,7 @@ export OPENAI_MODEL=gpt-4o-mini
 
 ```bash
 export OLLAMA_BASE_URL=http://localhost:11434
-export OLLAMA_MODEL=llama2
+export OLLAMA_MODEL=llama3.1
 ```
 
 **LM Studio:**
@@ -380,16 +652,16 @@ export LMSTUDIO_BASE_URL=http://localhost:1234/v1
 export LMSTUDIO_MODEL=local-model
 ```
 
-**Common:**
+**共通設定:**
 
 ```bash
 export LUNACODE_MAX_ITERATIONS=50
 export LUNACODE_TIMEOUT=15000
 ```
 
-### Configuration File
+### 設定ファイル
 
-Create `.kairos/config.json`:
+`.kairos/config.json` を作成します:
 
 ```json
 {
@@ -418,146 +690,146 @@ Create `.kairos/config.json`:
 }
 ```
 
-## 📈 Best Practices
+### フック設定
 
-### For Developers
+フック定義ファイルを `.kairos/hooks.json` に配置すると、エージェント起動時に自動的に読み込まれます。変数 `${filePath}`, `${toolName}`, `${sessionId}` が利用可能です。
 
-1. **Start Simple**: Begin with basic queries to understand LunaCode's responses
-2. **Use Memory**: Leverage LunaCode's memory for project context
-3. **Iterate**: Break complex tasks into smaller, manageable pieces
-4. **Review**: Always review LunaCode's suggestions before accepting
+## ベストプラクティス
 
-### For Teams
+### 開発者向け
 
-1. **Shared Context**: Use a shared `.kairos` directory for team projects
-2. **Daemon Mode**: Enable daemon mode for continuous background assistance
-3. **Memory Management**: Regularly compact and organize memory
-4. **Communication**: Use notifications for important updates
+1. **シンプルに始める** — 基本的なクエリから始めて、LunaCode の応答を理解する
+2. **メモリを活用** — プロジェクトのコンテキストを LunaCode のメモリに蓄積する
+3. **段階的に進める** — 複雑なタスクは小さな管理可能な部分に分割する
+4. **レビューする** — LunaCode の提案は必ず確認してから適用する
 
-### For Production
+### チーム向け
 
-1. **Testing**: Test with local LLMs before deploying
-2. **Monitoring**: Enable daemon mode and notifications
-3. **Access Control**: Implement proper user management
-4. **Sandbox**: Use sandbox environment for code execution
+1. **コンテキストの共有** — チームプロジェクトで `.kairos` ディレクトリを共有する
+2. **デーモンモード** — バックグラウンドで継続的に支援するデーモンモードを有効にする
+3. **メモリ管理** — 定期的にメモリの圧縮と整理を行う
+4. **通知** — 重要な更新には通知を活用する
 
-## 💡 Tips & Tricks
+### 本番環境向け
 
-### Keyboard Shortcuts
+1. **テスト** — デプロイ前にローカル LLM でテストする
+2. **監視** — デーモンモードと通知を有効にする
+3. **アクセス制御** — 適切なユーザー管理を実装する
+4. **サンドボックス** — コード実行にはサンドボックス環境を使用する
 
-When using LunaCode interactively:
+## ヒントとコツ
 
-- `Ctrl+C`: Cancel current operation
-- `Ctrl+D`: Exit interactive mode
-- Type `help`: Show available commands
+### キーボードショートカット
 
-### Memory Tips
+LunaCode を対話モードで使用する場合:
 
-1. **Be Specific**: The more specific your queries, the better the results
-2. **Use Topics**: Reference specific topics when working on related tasks
-3. **Regular Compact**: Compact memory regularly to maintain performance
-4. **Search First**: Search memory before asking questions
+- `Ctrl+C` — 現在の操作をキャンセル
+- `Ctrl+D` — 対話モードを終了
+- `help` と入力 — 利用可能なコマンドを表示
 
-### Performance Tips
+### メモリのコツ
 
-1. **Local LLMs**: Use local LLMs for faster responses and privacy
-2. **Memory Management**: Keep memory compact for better context
-3. **Parallel Execution**: Let LunaCode execute tools in parallel
-4. **Offline Mode**: Minimize API calls for offline tasks
+1. **具体的に指示** — クエリが具体的であるほど、結果が良くなる
+2. **トピックを活用** — 関連タスクでは特定のトピックを参照する
+3. **定期的に圧縮** — パフォーマンス維持のために定期的にメモリを圧縮する
+4. **まず検索** — 質問する前にメモリを検索する
 
-### Buddy Mode Tips
+### パフォーマンスのコツ
 
-1. **Regular Interaction**: Interact with your pet regularly to maintain happiness
-2. **Care Actions**: Feed, play, and care for your pet's needs
-3. **Personality**: Each pet type has unique characteristics
-4. **Names Matter**: Use meaningful names for better interaction
+1. **ローカル LLM** — プライバシーと高速応答のためにローカル LLM を使用する
+2. **メモリ管理** — コンテキストを最適化するためにメモリをコンパクトに保つ
+3. **並列実行** — LunaCode のツール並列実行を活用する
+4. **オフラインモード** — オフラインタスクでは API コールを最小化する
+5. **モデルルーティング** — タスクの複雑度に応じた自動ルーティングで、軽量タスクの応答速度を向上
+6. **ストリーミング** — Ollama ストリーミングでリアルタイム応答表示、待ち時間の体感を短縮
 
-## 🎓 Use Cases
+### バディモードのコツ
 
-### Web Development
+1. **定期的に交流** — ペットの幸福度を維持するために定期的にインタラクションする
+2. **ケアアクション** — ごはん、遊び、ケアなどペットのニーズに応える
+3. **性格** — ペットの種類ごとに固有の特性がある
+4. **名前の重要性** — 意味のある名前をつけるとよりよいインタラクションに
 
-**Setup a new project:**
+## ユースケース
+
+### Web 開発
+
+**新しいプロジェクトのセットアップ:**
 
 ```bash
-lunacode "Create a new React project with TypeScript, Vite, and Tailwind CSS"
-lunacode "Set up project structure with src/, public/, and components/ directories"
+lunacode "React + TypeScript + Vite + Tailwind CSS で新しいプロジェクトを作成して"
+lunacode "src/, public/, components/ ディレクトリでプロジェクト構造をセットアップして"
 ```
 
-**Add features incrementally:**
+**機能の段階的追加:**
 
 ```bash
-lunacode "Add authentication using JWT"
-lunacode "Implement user registration form"
-lunacode "Create API endpoints for user management"
+lunacode "JWT を使った認証を追加して"
+lunacode "ユーザー登録フォームを実装して"
+lunacode "ユーザー管理用の API エンドポイントを作成して"
 ```
 
-### Backend Development
+### バックエンド開発
 
-**Design REST API:**
+**REST API の設計:**
 
 ```bash
-lunacode "Design RESTful API endpoints for a blog application"
-lunacode "Implement CRUD operations for blog posts"
+lunacode "ブログアプリケーション用の RESTful API エンドポイントを設計して"
+lunacode "ブログ投稿の CRUD 操作を実装して"
 ```
 
-**Database Operations:**
+**データベース操作:**
 
 ```bash
-lunacode "Create database models for User and Post entities"
-lunacode "Implement database migrations"
+lunacode "User と Post エンティティのデータベースモデルを作成して"
+lunacode "データベースマイグレーションを実装して"
 ```
 
 ### DevOps
 
-**Create deployment scripts:**
+**デプロイスクリプトの作成:**
 
 ```bash
-lunacode "Create Dockerfile for a Node.js application"
-lunacode "Write deployment script using npm scripts"
+lunacode "Node.js アプリケーション用の Dockerfile を作成して"
+lunacode "npm scripts を使ったデプロイスクリプトを書いて"
 ```
 
-**CI/CD Configuration:**
+**CI/CD の設定:**
 
 ```bash
-lunacode "Create GitHub Actions workflow for testing and deployment"
+lunacode "テストとデプロイ用の GitHub Actions ワークフローを作成して"
 ```
 
-### Documentation
+### ドキュメント
 
-**Generate documentation:**
+**ドキュメントの生成:**
 
 ```bash
-lunacode "Generate JSDoc comments for all functions"
-lunacode "Create API documentation using OpenAPI spec"
+lunacode "すべての関数に JSDoc コメントを生成して"
+lunacode "OpenAPI 仕様で API ドキュメントを作成して"
 ```
 
-**Create guides:**
+**ガイドの作成:**
 
 ```bash
-lunacode "Write getting started guide for new contributors"
-lunacode "Create troubleshooting guide with common issues"
+lunacode "新しいコントリビューター向けの入門ガイドを書いて"
+lunacode "よくある問題と解決策のトラブルシューティングガイドを作成して"
 ```
 
-## 🆘 Getting More Help
+## ヘルプ・サポート
 
-### Documentation
+### ドキュメント
 
-- [API Documentation](./API.md)
-- [FAQ](./FAQ.md)
-- [Installation Guide](./INSTALLATION.md)
-- [Architecture](./architecture.md)
+- [アーキテクチャ](./ARCHITECTURE.md) — 内部設計の詳細
+- [開発計画](./inside/plan.md) — 全フェーズの開発計画と進捗
 
-### Community
+### コミュニティ
 
-- [GitHub Issues](https://github.com/YOUR_USERNAME/lunacode/issues)
-- [GitHub Discussions](https://github.com/YOUR_USERNAME/lunacode/discussions)
+- [GitHub Issues](https://github.com/zephel01/lunacode/issues) — バグ報告・機能リクエスト
+- [GitHub Discussions](https://github.com/zephel01/lunacode/discussions) — 一般的な質問・ディスカッション
 
-### Support
+### サポート
 
-- Create an issue with `support` label for complex problems
-- Join discussions for general questions
-- Check FAQ before posting new issues
-
----
-
-Happy coding with LunaCode! 🚀
+- 複雑な問題は `support` ラベル付きの Issue を作成してください
+- 一般的な質問は Discussions をご利用ください
+- 新しい Issue を作成する前に既存の Issue を確認してください
