@@ -50,10 +50,28 @@ export class ToolRegistry {
     return descriptions.join("\n");
   }
 
+  /**
+   * 許可されたツール名リストでフィルタリング（サブエージェント用）
+   * リストにないツールは除去される
+   */
+  filterByAllowed(allowedNames: string[]): void {
+    const allowed = new Set(allowedNames);
+    for (const name of this.tools.keys()) {
+      if (!allowed.has(name)) {
+        this.tools.delete(name);
+      }
+    }
+  }
+
   async executeTool(name: string, params: unknown) {
     const tool = this.get(name);
     if (!tool) {
-      throw new Error(`Tool not found: ${name}`);
+      const availableTools = this.getAll().map(t => t.name).join(", ");
+      return {
+        success: false,
+        output: "",
+        error: `Tool "${name}" is not available. Available tools: ${availableTools}`,
+      };
     }
     return tool.execute(params);
   }
