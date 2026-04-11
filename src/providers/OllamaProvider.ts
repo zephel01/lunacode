@@ -7,6 +7,7 @@ import {
   GenerateResponseOptions,
   defaultGenerateResponse,
 } from "./LLMProvider.js";
+import { StreamChunk } from "../types/index.js";
 
 export class OllamaProvider implements ILLMProvider {
   private baseUrl: string;
@@ -33,6 +34,233 @@ export class OllamaProvider implements ILLMProvider {
       : this.chatCompletionWithTextExtraction(request);
   }
 
+  supportsStreaming(): boolean {
+    return true;
+  }
+
+  /**
+   * ストリーミング対応チャットコンプリション
+   * Ollama の /api/chat エンドポイントをストリーミングモードで使用
+   */
+  async *chatCompletionStream(
+    request: ChatCompletionRequest,
+  ): AsyncGenerator<StreamChunk> {
+    try {
+      // テキスト抽出モードの場合、ツール指示をシステムプロンプトに注入
+      let effectiveRequest = request;
+      if (!this.useNativeTools && request.tools && request.tools.length > 0) {
+        const toolDescriptions = request.tools
+          .map((t) => {
+            const params = this.formatParametersForPrompt(t.function.parameters);
+            return `- ${t.function.name}: ${t.function.description}\n  Parameters: ${params}`;
+          })
+          .join("\n");
+
+        const toolInstructions = `\n\nWhen you need to use a tool, format your response EXACTLY like this:\n<tool_call>\n{"name": "tool_name", "arguments": {"param1": "value1"}}\n</tool_call>\n\nAvailable tools:\n${toolDescriptions}`;
+
+        const messages = request.messages.map((msg) => {
+          if (msg.role === "system") {
+            return { ...msg, content: msg.content + toolInstructions };
+          }
+          return msg;
+        });
+
+        effectiveRequest = { ...request, messages };
+        console.log(
+          `[DEBUG] Streaming with text-extraction mode: tool instructions injected into system prompt`,
+        );
+      }
+
+      const body = this.buildRequestBody(effectiveRequest, true);
+
+      console.log(
+        `[DEBUG] Ollama streaming request: model=${body.model}, stream=true, useNativeTools=${this.useNativeTools}`,
+      );
+
+      const response = await fetch(`${this.baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        // ネイティブモードで Bad Request → モデルが tools パラメータ非対応
+        // テキスト抽出モードにフォールバックしてリトライ
+        if (this.useNativeTools && response.status === 400) {
+          console.log(
+            `[DEBUG] ⚠️ Ollama returned 400 Bad Request with native tools. Model may not support tool calling. Switching to text extraction mode.`,
+          );
+          this.useNativeTools = false;
+          // ストリーミングを再帰的にやり直す（今度は tools なしで）
+          yield* this.chatCompletionStream(request);
+          return;
+        }
+        throw new Error(`Ollama API error: ${response.statusText}`);
+      }
+
+      if (!response.body) {
+        throw new Error("Response body is null");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = "";
+      let promptTokens = 0;
+      let completionTokens = 0;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+
+            try {
+              const json = JSON.parse(line);
+
+              // コンテンツチャンク
+              if (json.message?.content) {
+                const content = json.message.content;
+                fullContent += content;
+                yield {
+                  type: "content",
+                  delta: content,
+                };
+              }
+
+              // ストリーム終了時のトークンカウント
+              if (json.done === true) {
+                promptTokens = json.prompt_eval_count || 0;
+                completionTokens = json.eval_count || 0;
+
+                let streamToolCalls: Array<{
+                  id: string;
+                  type: "function";
+                  function: { name: string; arguments: string };
+                }> = [];
+
+                // ネイティブツールモードでの tool_calls
+                if (this.useNativeTools && json.message?.tool_calls) {
+                  streamToolCalls = json.message.tool_calls.map((tc: any, i: number) => ({
+                    id: `tool_${i}_${Date.now()}`,
+                    type: "function" as const,
+                    function: {
+                      name: tc.function.name,
+                      arguments:
+                        typeof tc.function.arguments === "string"
+                          ? tc.function.arguments
+                          : JSON.stringify(tc.function.arguments),
+                    },
+                  }));
+
+                  if (streamToolCalls.length > 0) {
+                    console.log(
+                      `[DEBUG] Native tool calls in stream: ${streamToolCalls.length}`,
+                    );
+                  }
+                }
+
+                // ネイティブ tool_calls がなかった場合 → テキスト抽出にフォールバック
+                // （useNativeTools の状態に関係なく、テキスト内の <tool_call> を常にチェック）
+                if (streamToolCalls.length === 0 && fullContent) {
+                  const extractedCalls = this.extractToolCallsFromText(fullContent);
+                  if (extractedCalls.length > 0) {
+                    console.log(
+                      `[DEBUG] Extracted ${extractedCalls.length} tool call(s) from streamed content (fallback)`,
+                    );
+                    streamToolCalls = extractedCalls;
+                  }
+                }
+
+                // 空レスポンス検出: ネイティブモードで content も tool_calls もない
+                // → 次回以降テキスト抽出モードに切り替え
+                if (this.useNativeTools && !fullContent && streamToolCalls.length === 0) {
+                  console.log(
+                    `[DEBUG] ⚠️ Empty streaming response with native tools. Switching to text extraction mode for model: ${request.model || this.model}`,
+                  );
+                  this.useNativeTools = false;
+                }
+
+                // ツール呼び出しを yield
+                for (const toolCall of streamToolCalls) {
+                  yield {
+                    type: "tool_call_start",
+                    toolCall,
+                  };
+                  yield {
+                    type: "tool_call_end",
+                  };
+                }
+
+                // 完了チャンク
+                yield {
+                  type: "done",
+                  usage: {
+                    prompt_tokens: promptTokens,
+                    completion_tokens: completionTokens,
+                    total_tokens: promptTokens + completionTokens,
+                  },
+                };
+              }
+            } catch (e) {
+              // JSON パースエラーは無視（部分的なチャンクの場合がある）
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[ERROR] Streaming error: ${errorMsg}`);
+      yield {
+        type: "error",
+        error: errorMsg,
+      };
+    }
+  }
+
+  /**
+   * リクエストボディを構築（共通処理）
+   */
+  private buildRequestBody(
+    request: ChatCompletionRequest,
+    stream: boolean = false,
+  ): Record<string, unknown> {
+    const body: Record<string, unknown> = {
+      model: request.model || this.model,
+      messages: this.convertMessages(request.messages),
+      stream,
+      options: {
+        temperature: request.temperature || 0.7,
+        // -1 = Ollama の無制限生成（モデルのコンテキストウィンドウまで）
+        // ユーザーが max_tokens を明示した場合のみその値を使う
+        num_predict: request.max_tokens ?? -1,
+      },
+    };
+
+    if (this.useNativeTools) {
+      const ollamaTools = request.tools?.map((tool) => ({
+        type: "function",
+        function: {
+          name: tool.function.name,
+          description: tool.function.description,
+          parameters: tool.function.parameters,
+        },
+      }));
+
+      if (ollamaTools && ollamaTools.length > 0) {
+        body.tools = ollamaTools;
+      }
+    }
+
+    return body;
+  }
+
   /**
    * ネイティブ Tool Calling API を使用
    * 空レスポンスの場合はテキスト抽出方式にフォールバック
@@ -40,31 +268,10 @@ export class OllamaProvider implements ILLMProvider {
   private async chatCompletionWithNativeTools(
     request: ChatCompletionRequest,
   ): Promise<ChatCompletionResponse> {
-    const ollamaTools = request.tools?.map((tool) => ({
-      type: "function",
-      function: {
-        name: tool.function.name,
-        description: tool.function.description,
-        parameters: tool.function.parameters,
-      },
-    }));
-
-    const body: Record<string, unknown> = {
-      model: request.model || this.model,
-      messages: this.convertMessages(request.messages),
-      stream: false,
-      options: {
-        temperature: request.temperature || 0.7,
-        num_predict: request.max_tokens || 4096,
-      },
-    };
-
-    if (ollamaTools && ollamaTools.length > 0) {
-      body.tools = ollamaTools;
-    }
+    const body = this.buildRequestBody(request, false);
 
     console.log(
-      `[DEBUG] Ollama request (native): tools=${ollamaTools?.length || 0}, model=${body.model}`,
+      `[DEBUG] Ollama request (native): tools=${(body.tools as unknown[])?.length || 0}, model=${body.model}`,
     );
 
     const response = await fetch(`${this.baseUrl}/api/chat`, {
@@ -74,6 +281,14 @@ export class OllamaProvider implements ILLMProvider {
     });
 
     if (!response.ok) {
+      // ネイティブモードで 400 → tools パラメータ非対応、テキスト抽出にフォールバック
+      if (response.status === 400) {
+        console.log(
+          `[DEBUG] ⚠️ Ollama returned 400 Bad Request with native tools. Switching to text extraction mode.`,
+        );
+        this.useNativeTools = false;
+        return this.chatCompletionWithTextExtraction(request);
+      }
       throw new Error(`Ollama API error: ${response.statusText}`);
     }
 
@@ -163,11 +378,13 @@ export class OllamaProvider implements ILLMProvider {
     request: ChatCompletionRequest,
   ): Promise<ChatCompletionResponse> {
     // ツール説明をシステムプロンプトに注入
+    // description にインライン例が含まれている場合はそれを活用し、
+    // パラメータスキーマは簡潔な形式で表示
     const toolDescriptions = request.tools
-      ?.map(
-        (t) =>
-          `- ${t.function.name}: ${t.function.description}\n  Parameters: ${JSON.stringify(t.function.parameters)}`,
-      )
+      ?.map((t) => {
+        const params = this.formatParametersForPrompt(t.function.parameters);
+        return `- ${t.function.name}: ${t.function.description}\n  Parameters: ${params}`;
+      })
       .join("\n");
 
     const toolInstructions = toolDescriptions
@@ -182,15 +399,8 @@ export class OllamaProvider implements ILLMProvider {
       return msg;
     });
 
-    const body: Record<string, unknown> = {
-      model: request.model || this.model,
-      messages: this.convertMessages(messages),
-      stream: false,
-      options: {
-        temperature: request.temperature || 0.7,
-        num_predict: request.max_tokens || 4096,
-      },
-    };
+    const modifiedRequest = { ...request, messages };
+    const body = this.buildRequestBody(modifiedRequest, false);
 
     console.log(
       `[DEBUG] Ollama request (text-extraction fallback): model=${body.model}`,
@@ -293,6 +503,25 @@ export class OllamaProvider implements ILLMProvider {
       if (parsed) toolCalls.push(this.createToolCall(toolCalls.length, parsed));
     }
 
+    // パターン1b: <tool_call> タグはあるが </tool_call> がない場合
+    // （モデルが大きな JSON を生成したが閉じタグを付けなかった場合）
+    if (toolCalls.length === 0) {
+      const openTagPattern = /<tool_call>\s*\n?\s*\{/g;
+      while ((match = openTagPattern.exec(content)) !== null) {
+        const jsonStart = content.indexOf("{", match.index);
+        if (jsonStart !== -1) {
+          const jsonStr = this.extractBalancedJson(content, jsonStart);
+          if (jsonStr) {
+            const parsed = this.tryParseToolCall(jsonStr);
+            if (parsed) {
+              console.log("[DEBUG] Pattern 1b: extracted tool call from unclosed <tool_call> tag");
+              toolCalls.push(this.createToolCall(toolCalls.length, parsed));
+            }
+          }
+        }
+      }
+    }
+
     // パターン2: JSON ブロック形式 (バックティック囲い)
     if (toolCalls.length === 0) {
       const jsonBlockPattern = /```(?:json)?\s*([\s\S]*?)\s*```/g;
@@ -323,15 +552,20 @@ export class OllamaProvider implements ILLMProvider {
 
     // パターン4: Gemma "Tool call: name{...}" 形式
     // 例: Tool call: write_file{"path": "/tmp/test.txt", "content": "hello"}
+    // ネストされた JSON（配列・オブジェクト）にも対応するためブレースバランスで抽出
     if (toolCalls.length === 0) {
-      const gemmaPattern = /Tool\s*call:\s*(\w+)\s*(\{[\s\S]*?\})/gi;
-      while ((match = gemmaPattern.exec(content)) !== null) {
+      const gemmaHeaderPattern = /Tool\s*call:\s*(\w+)\s*\{/gi;
+      while ((match = gemmaHeaderPattern.exec(content)) !== null) {
         try {
-          const args = JSON.parse(match[2]);
-          toolCalls.push(this.createToolCall(toolCalls.length, {
-            name: match[1],
-            arguments: args,
-          }));
+          const jsonStart = match.index + match[0].length - 1; // '{' の位置
+          const jsonStr = this.extractBalancedJson(content, jsonStart);
+          if (jsonStr) {
+            const args = JSON.parse(jsonStr);
+            toolCalls.push(this.createToolCall(toolCalls.length, {
+              name: match[1],
+              arguments: args,
+            }));
+          }
         } catch (e) {
           // パースエラーは継続
         }
@@ -359,15 +593,21 @@ export class OllamaProvider implements ILLMProvider {
 
     // パターン6: 生の JSON オブジェクト（最終手段）
     // テキスト中の {"name": "...", "arguments": {...}} を直接検出
+    // ネストされた arguments にも対応するためブレースバランスで抽出
     if (toolCalls.length === 0) {
-      const rawJsonPattern = /\{\s*"name"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*(\{[\s\S]*?\})\s*\}/g;
-      while ((match = rawJsonPattern.exec(content)) !== null) {
+      const rawJsonHeaderPattern = /\{\s*"name"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*\{/g;
+      while ((match = rawJsonHeaderPattern.exec(content)) !== null) {
         try {
-          const args = JSON.parse(match[2]);
-          toolCalls.push(this.createToolCall(toolCalls.length, {
-            name: match[1],
-            arguments: args,
-          }));
+          // "arguments": { の '{' から開始してバランスの取れた JSON を抽出
+          const argsStart = content.indexOf("{", match.index + match[0].length - 1);
+          const argsStr = this.extractBalancedJson(content, argsStart);
+          if (argsStr) {
+            const args = JSON.parse(argsStr);
+            toolCalls.push(this.createToolCall(toolCalls.length, {
+              name: match[1],
+              arguments: args,
+            }));
+          }
         } catch (e) {
           // パースエラーは継続
         }
@@ -379,6 +619,83 @@ export class OllamaProvider implements ILLMProvider {
     }
 
     return toolCalls;
+  }
+
+  /**
+   * パラメータスキーマをプロンプト用の簡潔な形式に変換
+   * ネストが深い場合は要約し、LLM が理解しやすい記述にする
+   */
+  private formatParametersForPrompt(schema: any): string {
+    if (!schema || !schema.properties) return "{}";
+
+    const parts: string[] = [];
+    for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
+      const required = schema.required?.includes(key) ? " (required)" : "";
+
+      if (prop.type === "array" && prop.items?.type === "object") {
+        // ネストされた配列オブジェクトは簡潔に記述
+        const itemProps = prop.items.properties
+          ? Object.entries(prop.items.properties)
+              .map(([k, v]: [string, any]) => {
+                const enumValues = v.enum ? ` [${v.enum.join("|")}]` : "";
+                return `${k}: ${v.type}${enumValues}`;
+              })
+              .join(", ")
+          : "...";
+        parts.push(`${key}: array of {${itemProps}}${required}`);
+      } else if (prop.enum) {
+        parts.push(`${key}: ${prop.type} [${prop.enum.join("|")}]${required}`);
+      } else {
+        parts.push(`${key}: ${prop.type}${required}`);
+      }
+    }
+    return `{${parts.join(", ")}}`;
+  }
+
+  /**
+   * テキスト中のバランスの取れた JSON オブジェクトを抽出
+   * ネストされた {} や [] を正しくハンドリングする
+   */
+  private extractBalancedJson(text: string, startIndex: number): string | null {
+    if (startIndex < 0 || startIndex >= text.length || text[startIndex] !== "{") {
+      return null;
+    }
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = startIndex; i < text.length; i++) {
+      const ch = text[i];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (ch === "{" || ch === "[") {
+        depth++;
+      } else if (ch === "}" || ch === "]") {
+        depth--;
+        if (depth === 0) {
+          return text.substring(startIndex, i + 1);
+        }
+      }
+    }
+
+    return null; // バランスが取れていない
   }
 
   /**

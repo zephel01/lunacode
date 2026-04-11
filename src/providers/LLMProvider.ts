@@ -110,6 +110,12 @@ export interface ILLMProvider {
 
   // 接続をテスト
   testConnection(): Promise<boolean>;
+
+  // ストリーミング対応チャットコンプリション
+  chatCompletionStream?(request: ChatCompletionRequest): AsyncGenerator<any>;
+
+  // ストリーミング対応かを判定
+  supportsStreaming?(): boolean;
 }
 
 /**
