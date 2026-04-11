@@ -4,6 +4,7 @@ import { AutoDream } from "../src/daemon/AutoDream.js";
 import { MemorySystem } from "../src/memory/MemorySystem.js";
 import * as path from "path";
 import * as fs from "fs/promises";
+import * as os from "os";
 
 describe("KAIROSDaemon", () => {
   let daemon: KAIROSDaemon;
@@ -11,8 +12,7 @@ describe("KAIROSDaemon", () => {
   let testPath: string;
 
   beforeEach(async () => {
-    testPath = path.join(process.cwd(), ".test-kairos");
-    await fs.mkdir(testPath, { recursive: true });
+    testPath = await fs.mkdtemp(path.join(os.tmpdir(), "test-kairos-"));
 
     memorySystem = new MemorySystem(testPath);
     await memorySystem.initialize();
@@ -277,8 +277,7 @@ describe("AutoDream", () => {
   let testPath: string;
 
   beforeEach(async () => {
-    testPath = path.join(process.cwd(), ".test-autodream");
-    await fs.mkdir(testPath, { recursive: true });
+    testPath = await fs.mkdtemp(path.join(os.tmpdir(), "test-autodream-"));
 
     memorySystem = new MemorySystem(testPath);
     await memorySystem.initialize();

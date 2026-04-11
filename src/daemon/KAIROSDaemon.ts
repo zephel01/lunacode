@@ -103,9 +103,9 @@ export class KAIROSDaemon {
       // アクティビティ時間のロード
       await this.loadLastActivityTime();
 
-      // 既存のPIDファイルを確認
+      // 既存のPIDファイルを確認（自プロセスのPIDは無視）
       const existingPid = await this.checkExistingDaemon();
-      if (existingPid) {
+      if (existingPid && existingPid !== process.pid) {
         throw new Error(`Daemon is already running with PID ${existingPid}`);
       }
 

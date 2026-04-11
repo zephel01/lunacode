@@ -42,10 +42,10 @@ describe("ToolRegistry", () => {
     expect(registry.get("nonexistent")).toBeUndefined();
   });
 
-  test("存在しないツールの実行はエラーを投げる", async () => {
-    expect(registry.executeTool("nonexistent", {})).rejects.toThrow(
-      "Tool not found",
-    );
+  test("存在しないツールの実行はエラー結果を返す", async () => {
+    const result = await registry.executeTool("nonexistent", {});
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("not available");
   });
 });
 
