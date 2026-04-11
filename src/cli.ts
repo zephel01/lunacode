@@ -5,6 +5,7 @@ import { ConfigManager } from "./config/ConfigManager.js";
 import { LLMProviderFactory } from "./providers/LLMProviderFactory.js";
 import { MemorySystem } from "./memory/MemorySystem.js";
 import { Spinner } from "./utils/Spinner.js";
+import { ProviderTester } from "./testing/ProviderTester.js";
 import * as path from "path";
 import * as fs from "fs/promises";
 import * as readline from "readline";
@@ -1558,7 +1559,13 @@ License: MIT
 
   // プロバイダーテスト
   if (command === "test-provider") {
-    console.log("\n🧪 Testing LLM provider connection...\n");
+    const isQuick = args.includes("--quick");
+    const saveReport = args.includes("--save");
+    const reportPath = (() => {
+      const idx = args.indexOf("--output");
+      if (idx !== -1 && args[idx + 1]) return args[idx + 1];
+      return path.join(kairosPath, `test-report-${Date.now()}.json`);
+    })();
 
     // 設定マネージャーの初期化
     const configManager = new ConfigManager(kairosPath);
@@ -1569,7 +1576,7 @@ License: MIT
     try {
       const providerConfig = configManager.getLLMProviderConfig();
       provider = LLMProviderFactory.createProvider(providerConfig);
-      console.log(`📡 Using ${provider.getType()} provider`);
+      console.log(`\n📡 Provider: ${provider.getType()}`);
       console.log(`🤖 Model: ${provider.getDefaultModel()}\n`);
     } catch (error) {
       console.error("Failed to initialize LLM provider:", error);
@@ -1582,26 +1589,37 @@ License: MIT
       process.exit(1);
     }
 
-    // エージェントの初期化
-    const agent = new AgentLoop(provider, kairosPath, configManager);
-    await agent.initialize();
+    if (isQuick) {
+      // クイックテスト: 接続確認のみ
+      console.log("🧪 Quick connection test...\n");
+      const agent = new AgentLoop(provider, kairosPath, configManager);
+      await agent.initialize();
+      try {
+        const spinner = new Spinner();
+        spinner.start("接続テスト実行中...");
+        const response = await agent.processUserInput("Test connection");
+        spinner.stop();
+        console.log("\n" + "=".repeat(80));
+        console.log("\n✅ Connection successful!\n");
+        console.log(response.substring(0, 200));
+        console.log("\n" + "=".repeat(80) + "\n");
+      } catch (error) {
+        console.error("❌ Connection failed:", error);
+        process.exit(1);
+      }
+    } else {
+      // フルテスト: 全機能テストスイート
+      const tester = new ProviderTester(provider, kairosPath, configManager);
+      const report = await tester.runAll();
+      tester.printReport(report);
 
-    // テストクエリ
-    const query = "Test connection";
-    console.log(`🚀 Testing with: "${query}"\n`);
+      if (saveReport) {
+        await tester.saveReport(report, reportPath);
+        console.log(`\n💾 Report saved to: ${reportPath}\n`);
+      }
 
-    try {
-      const spinner = new Spinner();
-      spinner.start("接続テスト実行中...");
-      const response = await agent.processUserInput(query);
-      spinner.stop();
-      console.log("\n" + "=".repeat(80));
-      console.log("\n✅ Connection successful!\n");
-      console.log(response.substring(0, 200));
-      console.log("\n" + "=".repeat(80) + "\n");
-    } catch (error) {
-      console.error("❌ Connection failed:", error);
-      process.exit(1);
+      const failed = report.results.filter((r) => r.status === "fail").length;
+      process.exit(failed > 0 ? 1 : 0);
     }
 
     process.exit(0);
