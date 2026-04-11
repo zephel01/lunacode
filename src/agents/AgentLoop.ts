@@ -1,13 +1,23 @@
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { MemorySystem } from "../memory/MemorySystem.js";
-import { AgentMessage, AgentState, LoadedSkill } from "../types/index.js";
+import { AgentMessage, AgentState, LoadedSkill, StreamChunk, StreamCallbacks } from "../types/index.js";
 import {
   ILLMProvider,
   ChatCompletionRequest,
   ChatMessage,
+  ToolCall,
 } from "../providers/LLMProvider.js";
 import { ConfigManager } from "../config/ConfigManager.js";
 import { SkillLoader } from "../skills/SkillLoader.js";
+import { ModelRegistry } from "../providers/ModelRegistry.js";
+import { ContextManager } from "./ContextManager.js";
+import { HookManager } from "../hooks/HookManager.js";
+import { FileHookLoader } from "../hooks/FileHookLoader.js";
+import { SubAgentManager } from "./SubAgentManager.js";
+import { SubAgentTool } from "../tools/SubAgentTool.js";
+import { CheckpointManager } from "./CheckpointManager.js";
+import { ApprovalManager } from "./ApprovalManager.js";
+import { MCPClientManager } from "../mcp/MCPClientManager.js";
 
 export class AgentLoop {
   private toolRegistry: ToolRegistry;
@@ -19,17 +29,44 @@ export class AgentLoop {
   private state: AgentState;
   private maxIterations: number = 50;
   private activeSkills: LoadedSkill[] = [];  // 現在アクティブなスキル
+  private lastUsage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  private streamCallbacks?: StreamCallbacks;
+  // Phase 2: コンテキストウィンドウ管理
+  private contextManager?: ContextManager;
+  private modelRegistry: ModelRegistry;
+  // Phase 7: Hooks
+  private hookManager: HookManager;
+  // Phase 8: サブエージェント
+  private subAgentManager?: SubAgentManager;
+  private basePath: string;
+  // Phase 5: チェックポイント
+  private checkpointManager?: CheckpointManager;
+  // Phase 6: 承認フロー
+  private approvalManager?: ApprovalManager;
+  // Phase 9: MCP
+  private mcpManager?: MCPClientManager;
+
+  // サブエージェントモード: delegate_task を登録せず再帰を防止
+  private isSubAgent: boolean = false;
+  // サブエージェントで許可されたツール名リスト
+  private allowedTools?: string[];
 
   constructor(
     llmProvider: ILLMProvider,
     basePath: string,
     configManager?: ConfigManager,
+    options?: { isSubAgent?: boolean; allowedTools?: string[] },
   ) {
     this.llmProvider = llmProvider;
+    this.basePath = basePath;
+    this.isSubAgent = options?.isSubAgent ?? false;
+    this.allowedTools = options?.allowedTools;
     this.toolRegistry = new ToolRegistry();
     this.memorySystem = new MemorySystem(basePath);
     this.configManager = configManager || new ConfigManager(basePath);
     this.skillLoader = new SkillLoader(basePath);
+    this.modelRegistry = new ModelRegistry();
+    this.hookManager = new HookManager();
     this.messages = [];
     this.state = {
       phase: "INIT",
@@ -46,6 +83,104 @@ export class AgentLoop {
     await this.llmProvider.initialize();
     await this.configManager.load();
     await this.skillLoader.loadAll();
+
+    // Phase 2: コンテキストウィンドウ管理の初期化
+    try {
+      const modelName = this.llmProvider.getDefaultModel();
+      const ollamaBaseUrl = this.llmProvider.getType() === "ollama" ? "http://localhost:11434" : undefined;
+      const modelInfo = await this.modelRegistry.getModelInfo(modelName, ollamaBaseUrl);
+      this.contextManager = new ContextManager(modelInfo);
+      console.log(`📐 Context window: ${modelInfo.contextLength} tokens (${modelName})`);
+    } catch (error) {
+      console.warn("⚠️ Failed to initialize context manager:", error);
+    }
+
+    // Phase 7: ファイルベースのフックをロード
+    try {
+      const fileLoader = new FileHookLoader();
+      const hookCount = await fileLoader.load(this.basePath, this.hookManager);
+      if (hookCount > 0) console.log(`🪝 Loaded ${hookCount} hook(s)`);
+    } catch (error) {
+      console.warn("⚠️ Failed to load hooks:", error);
+    }
+
+    // Phase 8: サブエージェントの初期化（サブエージェント自身には delegate_task を登録しない）
+    if (!this.isSubAgent) {
+      this.subAgentManager = new SubAgentManager(this.llmProvider, this.basePath);
+      this.toolRegistry.register(new SubAgentTool(this.subAgentManager));
+      console.log("🚀 Sub-agent delegation enabled (delegate_task tool)");
+    }
+
+    // Phase 5: チェックポイント管理の初期化（サブエージェントではスキップ）
+    if (!this.isSubAgent) {
+      try {
+        const checkpointConfig = this.configManager.get("checkpoint");
+        if (checkpointConfig?.enabled !== false) {
+          this.checkpointManager = new CheckpointManager(this.basePath, checkpointConfig);
+          await this.checkpointManager.initialize();
+          console.log("💾 Checkpoint system enabled");
+        }
+      } catch (error) {
+        console.warn("⚠️ Failed to initialize checkpoint manager:", error);
+      }
+    }
+
+    // Phase 6: 承認フローの初期化（サブエージェントではスキップ）
+    if (!this.isSubAgent) {
+      try {
+        const approvalConfig = this.configManager.get("approval");
+        if (approvalConfig?.mode && approvalConfig.mode !== "auto") {
+          this.approvalManager = new ApprovalManager(
+            {
+              mode: approvalConfig.mode || "selective",
+              showDiff: approvalConfig.showDiff !== false,
+              autoApproveReadOnly: approvalConfig.autoApproveReadOnly !== false,
+              timeoutSeconds: approvalConfig.timeoutSeconds || 0,
+            },
+            {
+              requestApproval: async (request) => {
+                // デフォルト: auto-approve（CLI統合時にコールバックを差し替え）
+                console.log(`🔍 Approval request: ${request.description}`);
+                if (request.diff) console.log(request.diff);
+                return { result: "approved" as const };
+              },
+            }
+          );
+          console.log(`✅ Approval flow enabled (mode: ${approvalConfig.mode})`);
+        }
+      } catch (error) {
+        console.warn("⚠️ Failed to initialize approval manager:", error);
+      }
+    }
+
+    // Phase 9: MCP サーバー接続（サブエージェントではスキップ）
+    if (!this.isSubAgent) {
+      try {
+        const mcpConfig = this.configManager.get("mcp");
+        if (mcpConfig?.servers?.length > 0) {
+          this.mcpManager = new MCPClientManager(this.toolRegistry);
+          await this.mcpManager.connectAll(mcpConfig.servers);
+        }
+      } catch (error) {
+        console.warn("⚠️ Failed to initialize MCP:", error);
+      }
+    }
+
+    // サブエージェントの場合、許可されたツールのみにフィルタリング
+    if (this.isSubAgent && this.allowedTools) {
+      this.toolRegistry.filterByAllowed(this.allowedTools);
+      console.log(`🔒 Sub-agent tool restriction: [${this.allowedTools.join(", ")}]`);
+    }
+
+    // Phase 7: セッション開始フック
+    await this.hookManager.emit("session:start", {});
+  }
+
+  /**
+   * ストリーミングコールバックを設定
+   */
+  setStreamCallbacks(callbacks: StreamCallbacks): void {
+    this.streamCallbacks = callbacks;
   }
 
   /**
@@ -112,9 +247,26 @@ export class AgentLoop {
 You have access to tools to help with coding tasks.
 Always think before acting, and use tools when appropriate.
 You MUST use tools to create, read, and edit files. Do NOT just describe what you would do - actually use the tools.
+IMPORTANT: You must ALWAYS use tools to gather information before answering. Never answer from memory or assume you have already seen the files. Always read files first.
+
+CRITICAL RULES — ALWAYS FOLLOW:
+1. NEVER claim you have already created, modified, or written a file unless you have JUST done it in this conversation. Always use glob or read_file to verify files exist before referencing them.
+2. When you are asked to create a file, use write_file immediately. Do NOT say "I already created it" or "I wrote it previously".
+3. After completing the requested task (e.g., writing a file), provide your FINAL TEXT ANSWER immediately. Do NOT keep reading the same files in a loop.
+4. If you notice yourself calling the same tool with the same arguments more than once, STOP and give your final answer now.
+5. DO NOT verify a file you just wrote by reading it back — that wastes time. Trust the write result and respond.
+6. FOR FILE CREATION: Always try to write the COMPLETE file in one write_file call first.
+   Only if the file is extremely large (500+ lines), you may split it into skeleton + edit_file steps.
 
 Available tools:
 ${this.toolRegistry.getToolDescriptions()}
+
+When the user asks you to use sub-agents or delegate tasks, you MUST use the delegate_task tool.
+When the user mentions "explorer", "worker", or "reviewer" roles, use delegate_task with those roles.
+Example: To analyze files in parallel with explorer sub-agents:
+<tool_call>
+{"name": "delegate_task", "arguments": {"tasks": [{"role": "explorer", "task": "Read and analyze src/file1.ts"}, {"role": "explorer", "task": "Read and analyze src/file2.ts"}]}}
+</tool_call>
 ${skillPrompt}
 Current project context (from memory):
 ${memoryContent}
@@ -127,11 +279,11 @@ ${recentLogs}
 
 Follow the ReAct pattern:
 1. Thought: Think about what you need to do
-2. Action: Choose a tool to execute
+2. Action: Choose a tool to execute (write_file, read_file, glob, bash, etc.)
 3. Observation: Analyze the tool output
-4. Repeat until the task is complete
+4. If the task is DONE: respond with a final text answer (NO tool calls). Do not loop.
 
-When you have enough information, provide a clear, concise response to the user.`;
+When you have enough information or the task is complete, provide a clear, concise response to the user WITHOUT any tool calls.`;
 
     // システムメッセージの重複追加を防止
     const existingSystemIndex = this.messages.findIndex(
@@ -152,11 +304,62 @@ When you have enough information, provide a clear, concise response to the user.
     return await this.runLoop();
   }
 
+  /**
+   * ストリーミング応答を消費し、content と toolCalls を集約
+   */
+  private async consumeStream(
+    request: ChatCompletionRequest,
+  ): Promise<{ content: string; toolCalls: ToolCall[] }> {
+    let content = "";
+    const toolCalls: ToolCall[] = [];
+
+    const streamGenerator = this.llmProvider.chatCompletionStream?.(request);
+    if (!streamGenerator) {
+      throw new Error("Provider does not support streaming");
+    }
+
+    for await (const chunk of streamGenerator) {
+      const streamChunk = chunk as StreamChunk;
+
+      // コンテンツトークンの処理
+      if (streamChunk.type === "content" && streamChunk.delta) {
+        content += streamChunk.delta;
+        this.streamCallbacks?.onToken?.(streamChunk.delta);
+      }
+
+      // ツールコール開始
+      if (streamChunk.type === "tool_call_start" && streamChunk.toolCall) {
+        const toolCall = streamChunk.toolCall as ToolCall;
+        toolCalls.push(toolCall);
+        this.streamCallbacks?.onToolCall?.(toolCall);
+      }
+
+      // 使用トークン情報
+      if (streamChunk.type === "done" && streamChunk.usage) {
+        this.lastUsage = streamChunk.usage;
+        this.streamCallbacks?.onUsage?.(streamChunk.usage);
+      }
+
+      // エラー処理
+      if (streamChunk.type === "error" && streamChunk.error) {
+        this.streamCallbacks?.onError?.(streamChunk.error);
+        throw new Error(`Stream error: ${streamChunk.error}`);
+      }
+    }
+
+    return { content, toolCalls };
+  }
+
   private retryCount: number = 0;
   private maxRetries: number = 2; // ツール未検出時のリトライ上限
 
+  // 重複ツール呼び出し検出用: {tool:args} の出現回数
+  private recentToolCallHistory: string[] = [];
+  private readonly DUPLICATE_TOOL_THRESHOLD = 3; // 同じツール+引数が何回で打ち切るか
+
   private async runLoop(): Promise<string> {
     let response = "";
+    this.recentToolCallHistory = [];
 
     while (this.state.iteration < this.state.maxIterations) {
       try {
@@ -173,41 +376,83 @@ When you have enough information, provide a clear, concise response to the user.
           },
         }));
 
+        // Phase 2: コンテキストウィンドウ管理 — メッセージをコンテキスト上限内に収める
+        const fittedMessages = this.contextManager
+          ? this.contextManager.fitMessages(this.messages)
+          : this.messages;
+
         const request: ChatCompletionRequest = {
           model: this.llmProvider.getDefaultModel(),
-          messages: this.messages as ChatMessage[],
+          messages: fittedMessages as ChatMessage[],
           tools,
           stream: false,
         };
 
-        const completion = await this.llmProvider.chatCompletion(request);
-        const assistantMessage = completion.choices[0].message;
+        // ストリーミングをサポートしているか確認
+        const supportsStream = this.llmProvider.supportsStreaming?.() ?? false;
+        let assistantContent = "";
+        let toolCalls: ToolCall[] = [];
+
+        if (supportsStream) {
+          // ストリーミングモードで実行
+          const result = await this.consumeStream(request);
+          assistantContent = result.content;
+          toolCalls = result.toolCalls;
+        } else {
+          // 非ストリーミングモードで実行
+          const completion = await this.llmProvider.chatCompletion(request);
+          const assistantMessage = completion.choices[0].message;
+          assistantContent = assistantMessage.content || "";
+          toolCalls = assistantMessage.tool_calls || [];
+        }
 
         // デバッグ: LLMレスポンスをログ
         console.log(
-          `\n[DEBUG] LLM Response - Content: ${assistantMessage.content?.substring(0, 100) || "(empty)"}...`,
+          `\n[DEBUG] LLM Response - Content: ${assistantContent?.substring(0, 100) || "(empty)"}...`,
         );
         console.log(
-          `[DEBUG] Tool calls detected: ${assistantMessage.tool_calls?.length || 0}`,
+          `[DEBUG] Tool calls detected: ${toolCalls.length || 0}`,
         );
 
         this.messages.push({
           role: "assistant",
-          content: assistantMessage.content || "",
+          content: assistantContent || "",
         });
 
         // ツールコールがある場合は実行
-        if (
-          assistantMessage.tool_calls &&
-          assistantMessage.tool_calls.length > 0
-        ) {
+        if (toolCalls && toolCalls.length > 0) {
           this.state.phase = "ACTING";
           this.retryCount = 0; // ツール検出成功でリトライカウンタリセット
 
-          for (const toolCall of assistantMessage.tool_calls) {
+          // 重複ツール呼び出し検出: 同じ {tool+args} が DUPLICATE_TOOL_THRESHOLD 回続いたら打ち切り
+          const toolCallKey = toolCalls
+            .map((tc) => `${tc.function.name}:${tc.function.arguments}`)
+            .join("|");
+          this.recentToolCallHistory.push(toolCallKey);
+          // 直近 N 件だけ保持
+          if (this.recentToolCallHistory.length > this.DUPLICATE_TOOL_THRESHOLD + 2) {
+            this.recentToolCallHistory.shift();
+          }
+          const duplicateCount = this.recentToolCallHistory.filter(
+            (k) => k === toolCallKey,
+          ).length;
+          if (duplicateCount >= this.DUPLICATE_TOOL_THRESHOLD) {
+            console.log(
+              `[DEBUG] ⚠️ Duplicate tool call detected (${duplicateCount}x): ${toolCallKey.substring(0, 100)}. Breaking loop.`,
+            );
+            this.messages.push({
+              role: "user",
+              content:
+                "You have called the same tool with the same arguments multiple times. The task appears to be complete. Please provide your FINAL TEXT ANSWER now without any tool calls.",
+            });
+            this.recentToolCallHistory = [];
+            continue;
+          }
+
+          for (const toolCall of toolCalls) {
             if (toolCall.type === "function") {
               this.state.action = toolCall.function.name;
-              this.state.thought = assistantMessage.content || "";
+              this.state.thought = assistantContent || "";
 
               console.log(`\n🤖 ${this.state.thought}`);
               console.log(`🔧 Executing: ${toolCall.function.name}`);
@@ -232,6 +477,63 @@ When you have enough information, provide a clear, concise response to the user.
                 `[DEBUG] Executing tool with args: ${JSON.stringify(parsedArgs)}`,
               );
 
+              // Phase 5: 書き込みツール実行前に自動チェックポイント
+              if (this.checkpointManager) {
+                const writeTools = ["write_file", "edit_file", "bash"];
+                if (writeTools.includes(toolCall.function.name)) {
+                  try {
+                    const argSummary = toolCall.function.name === "bash"
+                      ? (parsedArgs as any).command?.substring(0, 50) || ""
+                      : (parsedArgs as any).path || "";
+                    await this.checkpointManager.create(
+                      `Before: ${toolCall.function.name}(${argSummary})`
+                    );
+                  } catch (cpError) {
+                    // チェックポイント失敗はツール実行をブロックしない
+                  }
+                }
+              }
+
+              // Phase 6: 承認チェック
+              if (this.approvalManager) {
+                const tool = this.toolRegistry.get(toolCall.function.name);
+                const riskLevel = (tool as any)?.riskLevel || "MEDIUM";
+                const { approved, args: finalArgs } = await this.approvalManager.checkApproval(
+                  toolCall.function.name,
+                  parsedArgs,
+                  riskLevel,
+                );
+                if (!approved) {
+                  this.messages.push({
+                    role: "tool",
+                    content: "User rejected this tool execution. Try a different approach.",
+                    toolCallId: toolCall.id,
+                  });
+                  continue;
+                }
+                parsedArgs = finalArgs;
+              }
+
+              // Phase 7: ツール実行前フック
+              const beforeHook = await this.hookManager.emit("tool:before", {
+                toolName: toolCall.function.name,
+                toolArgs: parsedArgs,
+                iteration: this.state.iteration,
+              });
+
+              if (beforeHook.aborted) {
+                this.messages.push({
+                  role: "tool",
+                  content: "Execution aborted by hook.",
+                  toolCallId: toolCall.id,
+                });
+                continue;
+              }
+
+              if (beforeHook.modifiedArgs) {
+                parsedArgs = beforeHook.modifiedArgs;
+              }
+
               const toolResult = await this.toolRegistry.executeTool(
                 toolCall.function.name,
                 parsedArgs,
@@ -254,6 +556,61 @@ When you have enough information, provide a clear, concise response to the user.
                 toolCallId: toolCall.id,
               });
 
+              // Phase 7: ツール実行後フック
+              await this.hookManager.emit("tool:after", {
+                toolName: toolCall.function.name,
+                toolArgs: parsedArgs,
+                toolResult: { success: toolResult.success, output: toolResult.output, error: toolResult.error },
+                iteration: this.state.iteration,
+              });
+
+              // スケルトン検知: write_file / read_file の結果にプレースホルダーが残っている場合
+              // AgentLoop 側で edit_file を使ったセクション埋めを誘導する
+              {
+                let contentToCheck: string | null = null;
+                let filePath: string | null = null;
+
+                if (toolCall.function.name === "write_file" && toolResult.success) {
+                  filePath = (parsedArgs as any).path as string;
+                  contentToCheck = (parsedArgs as any).content as string;
+                } else if (toolCall.function.name === "read_file" && toolResult.success) {
+                  filePath = (parsedArgs as any).path as string;
+                  contentToCheck = toolResult.output;
+                }
+
+                if (contentToCheck && filePath) {
+                  const sectionPattern = /<!--\s*SECTION:\s*(\S+)\s*-->|\/\/\s*SECTION:\s*(\S+)/g;
+                  const sections: string[] = [];
+                  let sm: RegExpExecArray | null;
+                  while ((sm = sectionPattern.exec(contentToCheck)) !== null) {
+                    sections.push(sm[1] || sm[2]);
+                  }
+                  if (sections.length > 0) {
+                    console.log(`[DEBUG] 🏗️ Skeleton detected in ${filePath} — unfilled sections: ${sections.join(", ")}`);
+                    const sectionList = sections
+                      .map((s, i) => {
+                        const placeholder = contentToCheck!.includes(`<!-- SECTION: ${s}`)
+                          ? `<!-- SECTION: ${s} -->`
+                          : `// SECTION: ${s}`;
+                        return `${i + 1}. edit_file(path="${filePath}", oldString="${placeholder}", newString="...full ${s} content...")`;
+                      })
+                      .join("\n");
+                    this.messages.push({
+                      role: "user",
+                      content: `The file "${filePath}" has ${sections.length} unfilled SECTION placeholder(s): ${sections.join(", ")}.
+You MUST fill each section using edit_file NOW, one section at a time. Start with "${sections[0]}".
+
+${sectionList}
+
+Replace each placeholder with the REAL, COMPLETE implementation code. Do NOT leave any SECTION placeholder.
+<tool_call>
+{"name": "edit_file", "arguments": {"path": "${filePath}", "oldString": "${contentToCheck!.includes(`<!-- SECTION: ${sections[0]}`) ? `<!-- SECTION: ${sections[0]} -->` : `// SECTION: ${sections[0]}`}", "newString": "PUT REAL ${sections[0].toUpperCase()} CONTENT HERE"}}
+</tool_call>`,
+                    });
+                  }
+                }
+              }
+
               // ログに記録
               await this.memorySystem.appendToLog(
                 `[${new Date().toISOString()}] Tool: ${toolCall.function.name}, Result: ${toolResult.success ? "Success" : "Failed"}`,
@@ -262,45 +619,69 @@ When you have enough information, provide a clear, concise response to the user.
           }
         } else {
           // ツールコールがない場合
-          const content = assistantMessage.content || "";
+          const content = assistantContent || "";
 
-          // リトライ条件:
-          // 1. ループ開始直後（iteration 1〜3）のみ
-          // 2. まだリトライ回数に余裕がある
-          // 3. レスポンスが短い（= タスク完了の説明文ではない）
-          //    長い説明文（200文字超）はタスク完了のサインなのでリトライしない
+          // ─── リトライ条件の判定 ───────────────────────────────────────────
           const isEarlyPhase = this.state.iteration <= 3;
+          const isFirstIteration = this.state.iteration === 1;
+
+          // ハリネズミ検出: ファイルの存在や作成完了を主張しているが、
+          // ツールを一切使わずに回答している（幻覚の典型パターン）
+          const claimsFileExists =
+            /作成|完了|書き|保存|saved|created|wrote|written|already|以前|前回|finish/i.test(content) &&
+            /\.(html|ts|tsx|js|jsx|py|md|txt|json|css|rs|go|rb|java)\b/.test(content);
+
+          // リトライすべき条件:
+          // A) 1回目のイテレーションは常にリトライ（どんなに長い回答でも最初はツール確認が必要）
+          // B) ファイル存在・完了を主張しているが未確認（ハリネズミ）
+          // C) 短い回答（通常の「何もすることがない」パターン）
           const isShortResponse = content.length < 200;
-          if (this.retryCount < this.maxRetries && isEarlyPhase && isShortResponse) {
+          const shouldRetry =
+            this.retryCount < this.maxRetries &&
+            isEarlyPhase &&
+            (isFirstIteration || claimsFileExists || isShortResponse);
+
+          if (shouldRetry) {
             this.retryCount++;
-            console.log(
-              `[DEBUG] ⚠️ No tool calls detected. Retry ${this.retryCount}/${this.maxRetries} with stronger prompt`,
-            );
 
-            // 前回の assistant メッセージを残しつつ、強制的にツール使用を促すメッセージを追加
-            const retryPrompts = [
-              // リトライ1回目: 具体的な書式例を提示
-              `You did not use any tools. You MUST respond with a tool call to complete the task.
+            const availableToolNames = this.toolRegistry.getAll().map(t => t.name).join(", ");
 
-For example, to create a file, respond EXACTLY in this format:
+            let retryMessage: string;
+
+            if (claimsFileExists && this.retryCount === 1) {
+              // ハリネズミ専用メッセージ: glob で実際に確認させる
+              console.log(`[DEBUG] ⚠️ Hallucination detected — model claims files exist without verification. Forcing glob check.`);
+              retryMessage =
+`STOP. You claimed files exist or tasks are complete, but you used NO tools to verify this.
+You MUST use glob to check what files actually exist right now before responding.
 <tool_call>
-{"name": "write_file", "arguments": {"path": "/tmp/example.txt", "content": "file content here"}}
+{"name": "glob", "arguments": {"pattern": "*", "path": "."}}
+</tool_call>`;
+            } else if (isFirstIteration && this.retryCount === 1) {
+              // 初回イテレーション: タスクに必要なツールを使わせる
+              console.log(`[DEBUG] ⚠️ No tool calls on first iteration. Forcing tool use.`);
+              retryMessage =
+`You did not use any tools. The task requires you to use tools — DO NOT answer from memory.
+First, check what files exist in the project:
+<tool_call>
+{"name": "glob", "arguments": {"pattern": "*", "path": "."}}
+</tool_call>`;
+            } else {
+              // 通常リトライ: 書式例を提示
+              console.log(`[DEBUG] ⚠️ No tool calls detected. Retry ${this.retryCount}/${this.maxRetries} with stronger prompt`);
+              retryMessage =
+`You did not use any tools. You MUST respond with a tool call.
+Available tools: ${availableToolNames}
+
+Example:
+<tool_call>
+{"name": "write_file", "arguments": {"path": "index.html", "content": "..."}}
 </tool_call>
 
-Do NOT explain what you would do. Actually call the tool now.`,
-              // リトライ2回目: さらに直接的な指示
-              `IMPORTANT: Your response must contain a tool call. Do not write any explanation.
-Just output the tool call in this exact format:
-<tool_call>
-{"name": "write_file", "arguments": {"path": "THE_FILE_PATH", "content": "THE_CONTENT"}}
-</tool_call>`,
-            ];
+Do NOT explain. Actually call the tool now.`;
+            }
 
-            this.messages.push({
-              role: "user",
-              content: retryPrompts[this.retryCount - 1],
-            });
-
+            this.messages.push({ role: "user", content: retryMessage });
             continue; // ループの先頭に戻る
           }
 
@@ -314,6 +695,9 @@ Just output the tool call in this exact format:
         break;
       }
     }
+
+    // Phase 7: レスポンス完了フック
+    await this.hookManager.emit("response:complete", { iteration: this.state.iteration });
 
     // メモリ圧縮を実行（Phase 1の最適化）
     await this.memorySystem.microCompact();
@@ -346,5 +730,52 @@ Just output the tool call in this exact format:
 
   getLLMProvider(): ILLMProvider {
     return this.llmProvider;
+  }
+
+  getHookManager(): HookManager {
+    return this.hookManager;
+  }
+
+  getSubAgentManager(): SubAgentManager | undefined {
+    return this.subAgentManager;
+  }
+
+  getContextManager(): ContextManager | undefined {
+    return this.contextManager;
+  }
+
+  getToolRegistry(): ToolRegistry {
+    return this.toolRegistry;
+  }
+
+  getCheckpointManager(): CheckpointManager | undefined {
+    return this.checkpointManager;
+  }
+
+  getApprovalManager(): ApprovalManager | undefined {
+    return this.approvalManager;
+  }
+
+  getMCPManager(): MCPClientManager | undefined {
+    return this.mcpManager;
+  }
+
+  async cleanup(): Promise<void> {
+    // Phase 5: チェックポイントのクリーンアップ
+    try {
+      await this.checkpointManager?.cleanup();
+    } catch (error) {
+      // ignore
+    }
+
+    // Phase 9: MCP 接続の切断
+    try {
+      await this.mcpManager?.disconnectAll();
+    } catch (error) {
+      // ignore
+    }
+
+    // Phase 7: セッション終了フック
+    await this.hookManager.emit("session:end", {});
   }
 }

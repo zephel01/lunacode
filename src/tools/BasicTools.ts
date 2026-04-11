@@ -139,7 +139,7 @@ export class FileReadTool extends BaseTool {
 
 export class FileWriteTool extends BaseTool {
   name = "write_file";
-  description = "Write content to a file (overwrites existing content)";
+  description = `Write content to a file (creates or overwrites). Write the COMPLETE content in one call whenever possible. Use append=true only if appending additional content to an existing file.`;
   riskLevel: "LOW" | "MEDIUM" | "HIGH" = "MEDIUM";
 
   parameters = {
@@ -153,6 +153,11 @@ export class FileWriteTool extends BaseTool {
         type: "string",
         description: "The content to write to the file",
       },
+      append: {
+        type: "boolean",
+        description:
+          "If true, append content to the existing file instead of overwriting. Use this for writing large files in multiple parts.",
+      },
     },
     required: ["path", "content"],
   };
@@ -161,18 +166,26 @@ export class FileWriteTool extends BaseTool {
     try {
       this.validateParams(params, ["path", "content"]);
 
-      const { path, content } = params as {
+      const { path, content, append = false } = params as {
         path: string;
         content: string;
+        append?: boolean;
       };
 
       const fs = await import("fs/promises");
-      await fs.writeFile(path, content, "utf-8");
-
-      return {
-        success: true,
-        output: `Successfully wrote ${content.length} characters to ${path}`,
-      };
+      if (append) {
+        await fs.appendFile(path, content, "utf-8");
+        return {
+          success: true,
+          output: `Successfully appended ${content.length} characters to ${path}`,
+        };
+      } else {
+        await fs.writeFile(path, content, "utf-8");
+        return {
+          success: true,
+          output: `Successfully wrote ${content.length} characters to ${path}`,
+        };
+      }
     } catch (error) {
       return {
         success: false,
@@ -185,7 +198,7 @@ export class FileWriteTool extends BaseTool {
 
 export class FileEditTool extends BaseTool {
   name = "edit_file";
-  description = "Edit a file by replacing a specific string";
+  description = `Edit a file by replacing a specific string with new content. Use this to modify existing files instead of rewriting them entirely.`;
   riskLevel: "LOW" | "MEDIUM" | "HIGH" = "MEDIUM";
 
   parameters = {
