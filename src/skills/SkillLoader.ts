@@ -140,7 +140,8 @@ export class SkillLoader {
 
       if (matchedTriggers.length > 0) {
         // 関連度: マッチしたトリガー数 / 全トリガー数
-        const relevance = matchedTriggers.length / skill.manifest.triggers.length;
+        const relevance =
+          matchedTriggers.length / skill.manifest.triggers.length;
         matches.push({ skill, matchedTriggers, relevance });
       }
     }
@@ -222,7 +223,10 @@ export class SkillLoader {
   /**
    * 新しいスキルのテンプレートを作成
    */
-  async createSkillTemplate(name: string, description: string): Promise<string> {
+  async createSkillTemplate(
+    name: string,
+    description: string,
+  ): Promise<string> {
     const skillDir = path.join(this.skillsDir, name);
     await fs.mkdir(skillDir, { recursive: true });
 

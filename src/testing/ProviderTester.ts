@@ -12,7 +12,10 @@
  * 全テスト終了後にレポートを出力
  */
 
-import { ILLMProvider, ChatCompletionRequest } from "../providers/LLMProvider.js";
+import {
+  ILLMProvider,
+  ChatCompletionRequest,
+} from "../providers/LLMProvider.js";
 import { AgentLoop } from "../agents/AgentLoop.js";
 import { ConfigManager } from "../config/ConfigManager.js";
 import { MemorySystem } from "../memory/MemorySystem.js";
@@ -58,7 +61,11 @@ export class ProviderTester {
   private results: TestResult[] = [];
   private tempDir: string = "";
 
-  constructor(provider: ILLMProvider, basePath: string, configManager: ConfigManager) {
+  constructor(
+    provider: ILLMProvider,
+    basePath: string,
+    configManager: ConfigManager,
+  ) {
     this.provider = provider;
     this.basePath = basePath;
     this.configManager = configManager;
@@ -126,7 +133,10 @@ export class ProviderTester {
     return report;
   }
 
-  private async runCategory(categoryName: string, tests: (() => Promise<void>)[]): Promise<void> {
+  private async runCategory(
+    categoryName: string,
+    tests: (() => Promise<void>)[],
+  ): Promise<void> {
     console.log(`\n  📋 ${categoryName}`);
     console.log("  " + "─".repeat(50));
     for (const test of tests) {
@@ -136,12 +146,18 @@ export class ProviderTester {
 
   private addResult(result: TestResult): void {
     this.results.push(result);
-    const icon = result.status === "pass" ? "✅" :
-                 result.status === "fail" ? "❌" :
-                 result.status === "warn" ? "⚠️" : "⏭️";
-    const time = result.durationMs >= 1000
-      ? `${(result.durationMs / 1000).toFixed(1)}s`
-      : `${result.durationMs}ms`;
+    const icon =
+      result.status === "pass"
+        ? "✅"
+        : result.status === "fail"
+          ? "❌"
+          : result.status === "warn"
+            ? "⚠️"
+            : "⏭️";
+    const time =
+      result.durationMs >= 1000
+        ? `${(result.durationMs / 1000).toFixed(1)}s`
+        : `${result.durationMs}ms`;
     console.log(`  ${icon} ${result.name} [${time}] — ${result.message}`);
   }
 
@@ -156,7 +172,10 @@ export class ProviderTester {
       const request: ChatCompletionRequest = {
         model: this.provider.getDefaultModel(),
         messages: [
-          { role: "system", content: "You are a test assistant. Reply with only: OK" },
+          {
+            role: "system",
+            content: "You are a test assistant. Reply with only: OK",
+          },
           { role: "user", content: "ping" },
         ],
       };
@@ -169,7 +188,10 @@ export class ProviderTester {
         category: "基本接続",
         status: content.length > 0 ? "pass" : "warn",
         durationMs: Date.now() - start,
-        message: content.length > 0 ? `応答あり (${content.length} chars)` : "空レスポンス",
+        message:
+          content.length > 0
+            ? `応答あり (${content.length} chars)`
+            : "空レスポンス",
         details: content.substring(0, 100),
       });
     } catch (error) {
@@ -257,7 +279,10 @@ export class ProviderTester {
     try {
       const modelName = this.provider.getDefaultModel();
       const registry = new ModelRegistry();
-      const ollamaBaseUrl = this.provider.getType() === "ollama" ? "http://localhost:11434" : undefined;
+      const ollamaBaseUrl =
+        this.provider.getType() === "ollama"
+          ? "http://localhost:11434"
+          : undefined;
       const modelInfo = await registry.getModelInfo(modelName, ollamaBaseUrl);
 
       this.addResult({
@@ -289,23 +314,32 @@ export class ProviderTester {
       const request: ChatCompletionRequest = {
         model: this.provider.getDefaultModel(),
         messages: [
-          { role: "system", content: "You are a helpful assistant with tools. Always use the provided tools." },
+          {
+            role: "system",
+            content:
+              "You are a helpful assistant with tools. Always use the provided tools.",
+          },
           { role: "user", content: "What is 2+2? Use the calculator tool." },
         ],
-        tools: [{
-          type: "function",
-          function: {
-            name: "calculator",
-            description: "Perform arithmetic calculations",
-            parameters: {
-              type: "object",
-              properties: {
-                expression: { type: "string", description: "Math expression to evaluate" },
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "calculator",
+              description: "Perform arithmetic calculations",
+              parameters: {
+                type: "object",
+                properties: {
+                  expression: {
+                    type: "string",
+                    description: "Math expression to evaluate",
+                  },
+                },
+                required: ["expression"],
               },
-              required: ["expression"],
             },
           },
-        }],
+        ],
       };
 
       const response = await this.provider.chatCompletion(request);
@@ -319,7 +353,7 @@ export class ProviderTester {
           status: "pass",
           durationMs: Date.now() - start,
           message: `対応 (${toolCalls!.length} tool call(s))`,
-          details: toolCalls!.map(tc => tc.function.name).join(", "),
+          details: toolCalls!.map((tc) => tc.function.name).join(", "),
         });
       } else {
         this.addResult({
@@ -337,9 +371,12 @@ export class ProviderTester {
       this.addResult({
         name: "ネイティブ Tool Calling",
         category: "ツール呼び出し",
-        status: msg.includes("400") || msg.includes("Bad Request") ? "warn" : "fail",
+        status:
+          msg.includes("400") || msg.includes("Bad Request") ? "warn" : "fail",
         durationMs: Date.now() - start,
-        message: msg.includes("400") ? "非対応 (400 Bad Request) — テキスト抽出で代替" : `エラー: ${msg}`,
+        message: msg.includes("400")
+          ? "非対応 (400 Bad Request) — テキスト抽出で代替"
+          : `エラー: ${msg}`,
       });
     }
   }
@@ -361,13 +398,18 @@ export class ProviderTester {
 Available tools:
 - calculator: Perform arithmetic. Parameters: {expression: string (required)}`,
           },
-          { role: "user", content: "Calculate 3+5 using the calculator tool. Respond ONLY with the tool call." },
+          {
+            role: "user",
+            content:
+              "Calculate 3+5 using the calculator tool. Respond ONLY with the tool call.",
+          },
         ],
       };
 
       const response = await this.provider.chatCompletion(request);
       const content = response.choices[0]?.message?.content || "";
-      const hasToolCallTag = content.includes("<tool_call>") || content.includes('"name"');
+      const hasToolCallTag =
+        content.includes("<tool_call>") || content.includes('"name"');
 
       this.addResult({
         name: "テキスト抽出フォールバック",
@@ -398,15 +440,21 @@ Available tools:
     const start = Date.now();
     try {
       const registry = new ToolRegistry();
-      const result = await registry.executeTool("glob", { pattern: "src/**/*.ts" });
-      const fileCount = result.output ? result.output.split("\n").filter((l: string) => l.trim()).length : 0;
+      const result = await registry.executeTool("glob", {
+        pattern: "src/**/*.ts",
+      });
+      const fileCount = result.output
+        ? result.output.split("\n").filter((l: string) => l.trim()).length
+        : 0;
 
       this.addResult({
         name: "glob ツール",
         category: "個別ツール",
         status: result.success ? "pass" : "fail",
         durationMs: Date.now() - start,
-        message: result.success ? `${fileCount} ファイル検出` : `失敗: ${result.error}`,
+        message: result.success
+          ? `${fileCount} ファイル検出`
+          : `失敗: ${result.error}`,
       });
     } catch (error) {
       this.addResult({
@@ -423,14 +471,18 @@ Available tools:
     const start = Date.now();
     try {
       const registry = new ToolRegistry();
-      const result = await registry.executeTool("read_file", { path: "package.json" });
+      const result = await registry.executeTool("read_file", {
+        path: "package.json",
+      });
 
       this.addResult({
         name: "read_file ツール",
         category: "個別ツール",
         status: result.success ? "pass" : "fail",
         durationMs: Date.now() - start,
-        message: result.success ? `読み取り成功 (${result.output.length} chars)` : `失敗: ${result.error}`,
+        message: result.success
+          ? `読み取り成功 (${result.output.length} chars)`
+          : `失敗: ${result.error}`,
       });
     } catch (error) {
       this.addResult({
@@ -465,7 +517,9 @@ Available tools:
         category: "個別ツール",
         status: verifyOk ? "pass" : "fail",
         durationMs: Date.now() - start,
-        message: verifyOk ? "書き込み＆検証成功" : `失敗: ${result.error || "内容不一致"}`,
+        message: verifyOk
+          ? "書き込み＆検証成功"
+          : `失敗: ${result.error || "内容不一致"}`,
       });
     } catch (error) {
       this.addResult({
@@ -509,7 +563,9 @@ Available tools:
     const start = Date.now();
     try {
       const registry = new ToolRegistry();
-      const result = await registry.executeTool("bash", { command: "echo LunaCode-test-OK" });
+      const result = await registry.executeTool("bash", {
+        command: "echo LunaCode-test-OK",
+      });
       const output = result.output?.trim() || "";
 
       this.addResult({
@@ -517,7 +573,9 @@ Available tools:
         category: "個別ツール",
         status: output.includes("LunaCode-test-OK") ? "pass" : "fail",
         durationMs: Date.now() - start,
-        message: output.includes("LunaCode-test-OK") ? "コマンド実行成功" : `出力不一致: ${output.substring(0, 50)}`,
+        message: output.includes("LunaCode-test-OK")
+          ? "コマンド実行成功"
+          : `出力不一致: ${output.substring(0, 50)}`,
       });
     } catch (error) {
       this.addResult({
@@ -577,32 +635,42 @@ Available tools:
   private async testSubAgentDelegation(): Promise<void> {
     const start = Date.now();
     try {
-      const agent = new AgentLoop(this.provider, this.basePath, this.configManager);
+      const agent = new AgentLoop(
+        this.provider,
+        this.basePath,
+        this.configManager,
+      );
       await agent.initialize();
 
       // delegate_task を直接呼ぶのではなく、LLM にサブエージェント使用を依頼
       // タイムアウト付きで実行
       const timeout = 60000; // 60秒
       const taskPromise = agent.processUserInput(
-        "Use the delegate_task tool to spawn 1 explorer sub-agent that reads the file 'package.json' and reports its name field. Reply with the sub-agent result."
+        "Use the delegate_task tool to spawn 1 explorer sub-agent that reads the file 'package.json' and reports its name field. Reply with the sub-agent result.",
       );
 
       const result = await Promise.race([
         taskPromise,
         new Promise<string>((_, reject) =>
-          setTimeout(() => reject(new Error("Sub-agent test timeout (60s)")), timeout)
+          setTimeout(
+            () => reject(new Error("Sub-agent test timeout (60s)")),
+            timeout,
+          ),
         ),
       ]);
 
       const hasResult = result.length > 0;
-      const mentionsSubAgent = result.includes("sub-agent") || result.includes("Sub-agent") ||
-                                result.includes("delegate") || result.includes("package");
+      const mentionsSubAgent =
+        result.includes("sub-agent") ||
+        result.includes("Sub-agent") ||
+        result.includes("delegate") ||
+        result.includes("package");
 
       this.addResult({
         name: "サブエージェント (delegate_task)",
         category: "サブエージェント",
-        status: hasResult && mentionsSubAgent ? "pass" :
-                hasResult ? "warn" : "fail",
+        status:
+          hasResult && mentionsSubAgent ? "pass" : hasResult ? "warn" : "fail",
         durationMs: Date.now() - start,
         message: hasResult
           ? `応答あり (${result.length} chars)${mentionsSubAgent ? " — サブエージェント動作確認" : " — サブエージェント未使用の可能性"}`
@@ -616,7 +684,9 @@ Available tools:
         category: "サブエージェント",
         status: msg.includes("timeout") ? "warn" : "fail",
         durationMs: Date.now() - start,
-        message: msg.includes("timeout") ? "タイムアウト (60s) — モデルの応答が遅い可能性" : `エラー: ${msg}`,
+        message: msg.includes("timeout")
+          ? "タイムアウト (60s) — モデルの応答が遅い可能性"
+          : `エラー: ${msg}`,
       });
     }
   }
@@ -626,17 +696,25 @@ Available tools:
   // ──────────────────────────────────────────────────
 
   private buildReport(totalDurationMs: number): TestReport {
-    const passed = this.results.filter(r => r.status === "pass").length;
-    const failed = this.results.filter(r => r.status === "fail").length;
-    const skipped = this.results.filter(r => r.status === "skip").length;
-    const warned = this.results.filter(r => r.status === "warn").length;
+    const passed = this.results.filter((r) => r.status === "pass").length;
+    const failed = this.results.filter((r) => r.status === "fail").length;
+    const skipped = this.results.filter((r) => r.status === "skip").length;
+    const warned = this.results.filter((r) => r.status === "warn").length;
 
     // 能力判定
-    const nativeToolResult = this.results.find(r => r.name === "ネイティブ Tool Calling");
-    const textExtResult = this.results.find(r => r.name === "テキスト抽出フォールバック");
-    const streamResult = this.results.find(r => r.name === "ストリーミング");
-    const contextResult = this.results.find(r => r.name === "コンテキストウィンドウ");
-    const subAgentResult = this.results.find(r => r.name.includes("サブエージェント"));
+    const nativeToolResult = this.results.find(
+      (r) => r.name === "ネイティブ Tool Calling",
+    );
+    const textExtResult = this.results.find(
+      (r) => r.name === "テキスト抽出フォールバック",
+    );
+    const streamResult = this.results.find((r) => r.name === "ストリーミング");
+    const contextResult = this.results.find(
+      (r) => r.name === "コンテキストウィンドウ",
+    );
+    const subAgentResult = this.results.find((r) =>
+      r.name.includes("サブエージェント"),
+    );
 
     const contextTokens = contextResult?.details
       ? parseInt(contextResult.message.replace(/[^0-9]/g, "")) || 0
@@ -679,11 +757,21 @@ Available tools:
     console.log(`  📝 Total:   ${report.totalTests}`);
     console.log("─".repeat(70));
     console.log("  🔍 Capabilities:");
-    console.log(`     Native Tool Calling:     ${report.capabilities.nativeToolCalling ? "✅ Yes" : "❌ No"}`);
-    console.log(`     Text Extraction Fallback: ${report.capabilities.textExtractionFallback ? "✅ Yes" : "❌ No"}`);
-    console.log(`     Streaming:               ${report.capabilities.streaming ? "✅ Yes" : "❌ No"}`);
-    console.log(`     Context Window:          ${report.capabilities.contextWindowTokens > 0 ? report.capabilities.contextWindowTokens.toLocaleString() + " tokens" : "不明"}`);
-    console.log(`     Sub-agent Delegation:    ${report.capabilities.subAgentDelegation ? "✅ Yes" : "❌ No"}`);
+    console.log(
+      `     Native Tool Calling:     ${report.capabilities.nativeToolCalling ? "✅ Yes" : "❌ No"}`,
+    );
+    console.log(
+      `     Text Extraction Fallback: ${report.capabilities.textExtractionFallback ? "✅ Yes" : "❌ No"}`,
+    );
+    console.log(
+      `     Streaming:               ${report.capabilities.streaming ? "✅ Yes" : "❌ No"}`,
+    );
+    console.log(
+      `     Context Window:          ${report.capabilities.contextWindowTokens > 0 ? report.capabilities.contextWindowTokens.toLocaleString() + " tokens" : "不明"}`,
+    );
+    console.log(
+      `     Sub-agent Delegation:    ${report.capabilities.subAgentDelegation ? "✅ Yes" : "❌ No"}`,
+    );
     console.log("═".repeat(70) + "\n");
   }
 

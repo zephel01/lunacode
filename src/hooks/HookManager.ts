@@ -20,11 +20,17 @@ export class HookManager {
 
   unregister(name: string): void {
     for (const [event, hooks] of this.hooks) {
-      this.hooks.set(event, hooks.filter(h => h.name !== name));
+      this.hooks.set(
+        event,
+        hooks.filter((h) => h.name !== name),
+      );
     }
   }
 
-  async emit(event: HookEvent, contextData: Partial<HookContext>): Promise<{
+  async emit(
+    event: HookEvent,
+    contextData: Partial<HookContext>,
+  ): Promise<{
     aborted: boolean;
     modifiedArgs?: Record<string, unknown>;
   }> {
@@ -36,8 +42,12 @@ export class HookManager {
       event,
       timestamp: Date.now(),
       sessionId: this.sessionId,
-      abort: () => { aborted = true; },
-      modifyArgs: (args) => { modifiedArgs = args; },
+      abort: () => {
+        aborted = true;
+      },
+      modifyArgs: (args) => {
+        modifiedArgs = args;
+      },
       ...contextData,
     };
 

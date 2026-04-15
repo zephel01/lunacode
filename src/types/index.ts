@@ -239,35 +239,35 @@ export interface SkillManifest {
   name: string;
   version: string;
   description: string;
-  triggers: string[];          // 自動検出キーワード（"excel", "spreadsheet" 等）
+  triggers: string[]; // 自動検出キーワード（"excel", "spreadsheet" 等）
   author?: string;
   category?: SkillCategory;
-  tools?: string;              // 追加ツール定義ファイル（相対パス）
+  tools?: string; // 追加ツール定義ファイル（相対パス）
   config?: Record<string, unknown>;
 }
 
 // スキルカテゴリ
 export type SkillCategory =
-  | "document"     // ドキュメント生成（docx, pdf, pptx）
-  | "data"         // データ処理（xlsx, csv）
-  | "code"         // コーディング支援
-  | "devops"       // DevOps / CI/CD
-  | "custom";      // ユーザー定義
+  | "document" // ドキュメント生成（docx, pdf, pptx）
+  | "data" // データ処理（xlsx, csv）
+  | "code" // コーディング支援
+  | "devops" // DevOps / CI/CD
+  | "custom"; // ユーザー定義
 
 // ロード済みスキル
 export interface LoadedSkill {
   manifest: SkillManifest;
-  skillMdContent: string;      // SKILL.md の内容
-  dirPath: string;             // スキルディレクトリパス
-  tools: Tool[];               // 追加ツール（オプション）
+  skillMdContent: string; // SKILL.md の内容
+  dirPath: string; // スキルディレクトリパス
+  tools: Tool[]; // 追加ツール（オプション）
   isEnabled: boolean;
 }
 
 // スキル検索結果
 export interface SkillMatch {
   skill: LoadedSkill;
-  matchedTriggers: string[];   // マッチしたトリガーワード
-  relevance: number;           // 関連度スコア（0-1）
+  matchedTriggers: string[]; // マッチしたトリガーワード
+  relevance: number; // 関連度スコア（0-1）
 }
 
 // ========================================
@@ -276,7 +276,13 @@ export interface SkillMatch {
 
 // ストリーミングチャンクの型
 export interface StreamChunk {
-  type: "content" | "tool_call_start" | "tool_call_delta" | "tool_call_end" | "done" | "error";
+  type:
+    | "content"
+    | "tool_call_start"
+    | "tool_call_delta"
+    | "tool_call_end"
+    | "done"
+    | "error";
   delta?: string;
   toolCallIndex?: number;
   toolCall?: Partial<ToolCall>;
@@ -292,7 +298,12 @@ export interface StreamChunk {
 export interface StreamCallbacks {
   onToken?: (token: string) => void;
   onToolCall?: (toolCall: ToolCall) => void;
-  onUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; durationMs?: number }) => void;
+  onUsage?: (usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    durationMs?: number;
+  }) => void;
   onError?: (error: string) => void;
 }
 

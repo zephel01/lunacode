@@ -32,19 +32,43 @@ export class BashTool extends BaseTool {
 
       // セキュリティチェック: 危険なパターンを正規表現で検出
       const dangerousPatterns: Array<{ pattern: RegExp; reason: string }> = [
-        { pattern: /rm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?\/(\s|$|\*)/, reason: "Recursive delete on root" },
-        { pattern: /rm\s+-[a-zA-Z]*r[a-zA-Z]*\s+-[a-zA-Z]*f/, reason: "Forced recursive delete" },
-        { pattern: /rm\s+-[a-zA-Z]*f[a-zA-Z]*\s+-[a-zA-Z]*r/, reason: "Forced recursive delete" },
-        { pattern: /dd\s+.*if=\/dev\/(zero|random|urandom)/, reason: "Disk overwrite via dd" },
+        {
+          pattern: /rm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?\/(\s|$|\*)/,
+          reason: "Recursive delete on root",
+        },
+        {
+          pattern: /rm\s+-[a-zA-Z]*r[a-zA-Z]*\s+-[a-zA-Z]*f/,
+          reason: "Forced recursive delete",
+        },
+        {
+          pattern: /rm\s+-[a-zA-Z]*f[a-zA-Z]*\s+-[a-zA-Z]*r/,
+          reason: "Forced recursive delete",
+        },
+        {
+          pattern: /dd\s+.*if=\/dev\/(zero|random|urandom)/,
+          reason: "Disk overwrite via dd",
+        },
         { pattern: /mkfs(\.\w+)?(\s|$)/, reason: "Filesystem format" },
-        { pattern: /chmod\s+(-[a-zA-Z]*R[a-zA-Z]*\s+)?777\s+\//, reason: "Recursive permission change on root" },
+        {
+          pattern: /chmod\s+(-[a-zA-Z]*R[a-zA-Z]*\s+)?777\s+\//,
+          reason: "Recursive permission change on root",
+        },
         { pattern: />\s*\/dev\/[sh]d[a-z]/, reason: "Direct device write" },
         { pattern: /:(){ :|:& };:/, reason: "Fork bomb" },
         { pattern: /\bsudo\b/, reason: "Privileged execution" },
-        { pattern: /\bcurl\b.*\|\s*(ba)?sh/, reason: "Remote code execution via pipe" },
-        { pattern: /\bwget\b.*\|\s*(ba)?sh/, reason: "Remote code execution via pipe" },
+        {
+          pattern: /\bcurl\b.*\|\s*(ba)?sh/,
+          reason: "Remote code execution via pipe",
+        },
+        {
+          pattern: /\bwget\b.*\|\s*(ba)?sh/,
+          reason: "Remote code execution via pipe",
+        },
         { pattern: />\s*\/etc\//, reason: "Writing to system config" },
-        { pattern: /\bshutdown\b|\breboot\b|\bhalt\b|\bpoweroff\b/, reason: "System shutdown/reboot" },
+        {
+          pattern: /\bshutdown\b|\breboot\b|\bhalt\b|\bpoweroff\b/,
+          reason: "System shutdown/reboot",
+        },
       ];
 
       const normalizedCommand = command.replace(/\s+/g, " ").trim();
@@ -166,7 +190,11 @@ export class FileWriteTool extends BaseTool {
     try {
       this.validateParams(params, ["path", "content"]);
 
-      const { path, content, append = false } = params as {
+      const {
+        path,
+        content,
+        append = false,
+      } = params as {
         path: string;
         content: string;
         append?: boolean;

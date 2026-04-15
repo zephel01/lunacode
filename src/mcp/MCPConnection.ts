@@ -86,7 +86,7 @@ export class MCPConnection {
           this.connected = false;
           if (code !== 0 && code !== null) {
             console.warn(
-              `MCP server ${this.config.name} exited with code ${code}`
+              `MCP server ${this.config.name} exited with code ${code}`,
             );
           }
         });
@@ -151,7 +151,7 @@ export class MCPConnection {
 
   async callTool(
     name: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
   ): Promise<{
     content: Array<{ type: string; text?: string }>;
     isError?: boolean;
@@ -174,7 +174,7 @@ export class MCPConnection {
   }
 
   async readResource(
-    uri: string
+    uri: string,
   ): Promise<{ contents: Array<{ uri: string; text?: string }> }> {
     const response = (await this.sendRequest("resources/read", {
       uri,
@@ -277,8 +277,8 @@ export class MCPConnection {
             if (message.error) {
               pending.reject(
                 new Error(
-                  `RPC error: ${message.error.message || JSON.stringify(message.error)}`
-                )
+                  `RPC error: ${message.error.message || JSON.stringify(message.error)}`,
+                ),
               );
             } else {
               pending.resolve(message.result);

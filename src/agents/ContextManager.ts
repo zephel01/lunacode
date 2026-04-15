@@ -28,8 +28,8 @@ export class ContextManager {
     }
 
     // Strategy: always keep system messages, drop oldest non-system messages
-    const systemMessages = messages.filter(m => m.role === "system");
-    const otherMessages = messages.filter(m => m.role !== "system");
+    const systemMessages = messages.filter((m) => m.role === "system");
+    const otherMessages = messages.filter((m) => m.role !== "system");
 
     const systemTokens = TokenCounter.estimateMessages(systemMessages as any[]);
     let budget = this.availableTokens - systemTokens;
@@ -51,7 +51,9 @@ export class ContextManager {
 
     const removed = otherMessages.length - kept.length;
     if (removed > 0) {
-      console.log(`📦 Context window: trimmed ${removed} old messages (${totalTokens} → ~${totalTokens - removed * 50} est. tokens)`);
+      console.log(
+        `📦 Context window: trimmed ${removed} old messages (${totalTokens} → ~${totalTokens - removed * 50} est. tokens)`,
+      );
     }
 
     return [...systemMessages, ...kept];
@@ -78,7 +80,9 @@ export class ContextManager {
     // Could implement adaptive correction factor here in the future
     const ratio = actual.prompt_tokens / Math.max(estimated, 1);
     if (ratio > 1.5 || ratio < 0.5) {
-      console.log(`📊 Token estimate calibration: estimated=${estimated}, actual=${actual.prompt_tokens}, ratio=${ratio.toFixed(2)}`);
+      console.log(
+        `📊 Token estimate calibration: estimated=${estimated}, actual=${actual.prompt_tokens}, ratio=${ratio.toFixed(2)}`,
+      );
     }
   }
 }

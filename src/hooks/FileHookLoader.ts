@@ -46,7 +46,10 @@ export class FileHookLoader {
         handler: async (context: HookContext) => {
           // Condition check: toolName
           if (hookConfig.condition?.toolName) {
-            if (!context.toolName || !hookConfig.condition.toolName.includes(context.toolName)) {
+            if (
+              !context.toolName ||
+              !hookConfig.condition.toolName.includes(context.toolName)
+            ) {
               return;
             }
           }
@@ -68,8 +71,10 @@ export class FileHookLoader {
               cwd: basePath,
               timeout: 30000,
             });
-            if (stdout.trim()) console.log(`[Hook: ${hookConfig.name}] ${stdout.trim()}`);
-            if (stderr.trim()) console.warn(`[Hook: ${hookConfig.name}] ${stderr.trim()}`);
+            if (stdout.trim())
+              console.log(`[Hook: ${hookConfig.name}] ${stdout.trim()}`);
+            if (stderr.trim())
+              console.warn(`[Hook: ${hookConfig.name}] ${stderr.trim()}`);
           } catch (error) {
             console.error(`[Hook: ${hookConfig.name}] Command failed:`, error);
           }

@@ -1,11 +1,5 @@
-import {
-  ILLMProvider,
-  LLMProviderType,
-} from "../providers/LLMProvider.js";
-import {
-  TaskClassifier,
-  ClassificationResult,
-} from "./TaskClassifier.js";
+import { ILLMProvider, LLMProviderType } from "../providers/LLMProvider.js";
+import { TaskClassifier, ClassificationResult } from "./TaskClassifier.js";
 
 export interface ModelRoutingConfig {
   enabled: boolean;
@@ -18,10 +12,7 @@ export class ModelRouter {
   private heavyProvider: ILLMProvider;
   private classifier: TaskClassifier;
 
-  constructor(
-    lightProvider: ILLMProvider,
-    heavyProvider: ILLMProvider,
-  ) {
+  constructor(lightProvider: ILLMProvider, heavyProvider: ILLMProvider) {
     this.lightProvider = lightProvider;
     this.heavyProvider = heavyProvider;
     this.classifier = new TaskClassifier();

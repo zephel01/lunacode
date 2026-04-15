@@ -77,7 +77,7 @@ export class CheckpointManager {
       // Get current branch for restoration later
       try {
         this.originalBranch = this.executeGit(
-          "rev-parse --abbrev-ref HEAD"
+          "rev-parse --abbrev-ref HEAD",
         ).trim();
       } catch (e) {
         this.originalBranch = "main";
@@ -139,9 +139,12 @@ export class CheckpointManager {
 
       // Get list of changed files
       const diffOutput = this.executeGit(
-        `diff-tree --no-commit-id --name-only -r ${commitHash}`
+        `diff-tree --no-commit-id --name-only -r ${commitHash}`,
       );
-      const filesChanged = diffOutput.trim().split("\n").filter((f) => f);
+      const filesChanged = diffOutput
+        .trim()
+        .split("\n")
+        .filter((f) => f);
 
       // Create checkpoint object
       const checkpoint: Checkpoint = {
@@ -188,7 +191,7 @@ export class CheckpointManager {
 
       // Remove checkpoints after this one
       const checkpointIndex = this.checkpoints.findIndex(
-        (cp) => cp.id === checkpointId
+        (cp) => cp.id === checkpointId,
       );
       this.checkpoints = this.checkpoints.slice(0, checkpointIndex + 1);
 
@@ -249,9 +252,7 @@ export class CheckpointManager {
         toHash = toCheckpoint.commitHash;
       }
 
-      return this.executeGit(
-        `diff ${fromCheckpoint.commitHash}..${toHash}`
-      );
+      return this.executeGit(`diff ${fromCheckpoint.commitHash}..${toHash}`);
     } catch (e) {
       console.error("Failed to get diff:", e);
       return "";
@@ -293,7 +294,7 @@ export class CheckpointManager {
     } catch (e: unknown) {
       const error = e as Error & { status?: number };
       throw new Error(
-        `Git command failed: ${command}, Error: ${error.message}`
+        `Git command failed: ${command}, Error: ${error.message}`,
       );
     }
   }

@@ -104,10 +104,7 @@ export class DiffGenerator {
     const contextAfter = 3;
 
     const displayStart = Math.max(0, startLine - contextBefore);
-    const displayEnd = Math.min(
-      lines.length - 1,
-      endLine + contextAfter,
-    );
+    const displayEnd = Math.min(lines.length - 1, endLine + contextAfter);
 
     let diff = `--- a/${filePath}\n`;
     diff += `+++ b/${filePath}\n`;
@@ -296,7 +293,10 @@ export class DiffGenerator {
         const oldNextMatch = oldLines.indexOf(newLines[newIdx], oldIdx + 1);
         const newNextMatch = newLines.indexOf(oldLines[oldIdx], newIdx + 1);
 
-        if (oldNextMatch !== -1 && (newNextMatch === -1 || oldNextMatch <= newNextMatch)) {
+        if (
+          oldNextMatch !== -1 &&
+          (newNextMatch === -1 || oldNextMatch <= newNextMatch)
+        ) {
           // Remove lines until we find a match
           result.push(["remove", oldLines[oldIdx]]);
           oldIdx++;

@@ -412,7 +412,9 @@ export class MultiAgentCoordinator {
       task.status = TaskStatus.FAILED;
       task.completedAt = Date.now();
       this.state.failedTasks++;
-      console.error(`💀 Task ${event.taskId} permanently failed after ${maxRetries} attempts`);
+      console.error(
+        `💀 Task ${event.taskId} permanently failed after ${maxRetries} attempts`,
+      );
     }
   }
 

@@ -66,7 +66,9 @@ export class ToolRegistry {
   async executeTool(name: string, params: unknown) {
     const tool = this.get(name);
     if (!tool) {
-      const availableTools = this.getAll().map(t => t.name).join(", ");
+      const availableTools = this.getAll()
+        .map((t) => t.name)
+        .join(", ");
       return {
         success: false,
         output: "",

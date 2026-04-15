@@ -120,7 +120,11 @@ export async function withSpinner<T>(
 /**
  * プログレスバー表示（複数ステップ用）
  */
-export function showProgress(current: number, total: number, label: string = ""): void {
+export function showProgress(
+  current: number,
+  total: number,
+  label: string = "",
+): void {
   const percentage = Math.round((current / total) * 100);
   const filled = Math.round((current / total) * 20);
   const empty = 20 - filled;

@@ -1,6 +1,12 @@
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { MemorySystem } from "../memory/MemorySystem.js";
-import { AgentMessage, AgentState, LoadedSkill, StreamChunk, StreamCallbacks } from "../types/index.js";
+import {
+  AgentMessage,
+  AgentState,
+  LoadedSkill,
+  StreamChunk,
+  StreamCallbacks,
+} from "../types/index.js";
 import {
   ILLMProvider,
   ChatCompletionRequest,
@@ -28,8 +34,12 @@ export class AgentLoop {
   private messages: AgentMessage[];
   private state: AgentState;
   private maxIterations: number = 50;
-  private activeSkills: LoadedSkill[] = [];  // 現在アクティブなスキル
-  private lastUsage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  private activeSkills: LoadedSkill[] = []; // 現在アクティブなスキル
+  private lastUsage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
   private streamCallbacks?: StreamCallbacks;
   // Phase 2: コンテキストウィンドウ管理
   private contextManager?: ContextManager;
@@ -87,10 +97,18 @@ export class AgentLoop {
     // Phase 2: コンテキストウィンドウ管理の初期化
     try {
       const modelName = this.llmProvider.getDefaultModel();
-      const ollamaBaseUrl = this.llmProvider.getType() === "ollama" ? "http://localhost:11434" : undefined;
-      const modelInfo = await this.modelRegistry.getModelInfo(modelName, ollamaBaseUrl);
+      const ollamaBaseUrl =
+        this.llmProvider.getType() === "ollama"
+          ? "http://localhost:11434"
+          : undefined;
+      const modelInfo = await this.modelRegistry.getModelInfo(
+        modelName,
+        ollamaBaseUrl,
+      );
       this.contextManager = new ContextManager(modelInfo);
-      console.log(`📐 Context window: ${modelInfo.contextLength} tokens (${modelName})`);
+      console.log(
+        `📐 Context window: ${modelInfo.contextLength} tokens (${modelName})`,
+      );
     } catch (error) {
       console.warn("⚠️ Failed to initialize context manager:", error);
     }
@@ -106,7 +124,10 @@ export class AgentLoop {
 
     // Phase 8: サブエージェントの初期化（サブエージェント自身には delegate_task を登録しない）
     if (!this.isSubAgent) {
-      this.subAgentManager = new SubAgentManager(this.llmProvider, this.basePath);
+      this.subAgentManager = new SubAgentManager(
+        this.llmProvider,
+        this.basePath,
+      );
       this.toolRegistry.register(new SubAgentTool(this.subAgentManager));
       console.log("🚀 Sub-agent delegation enabled (delegate_task tool)");
     }
@@ -116,7 +137,10 @@ export class AgentLoop {
       try {
         const checkpointConfig = this.configManager.get("checkpoint");
         if (checkpointConfig?.enabled !== false) {
-          this.checkpointManager = new CheckpointManager(this.basePath, checkpointConfig);
+          this.checkpointManager = new CheckpointManager(
+            this.basePath,
+            checkpointConfig,
+          );
           await this.checkpointManager.initialize();
           console.log("💾 Checkpoint system enabled");
         }
@@ -144,9 +168,11 @@ export class AgentLoop {
                 if (request.diff) console.log(request.diff);
                 return { result: "approved" as const };
               },
-            }
+            },
           );
-          console.log(`✅ Approval flow enabled (mode: ${approvalConfig.mode})`);
+          console.log(
+            `✅ Approval flow enabled (mode: ${approvalConfig.mode})`,
+          );
         }
       } catch (error) {
         console.warn("⚠️ Failed to initialize approval manager:", error);
@@ -169,7 +195,9 @@ export class AgentLoop {
     // サブエージェントの場合、許可されたツールのみにフィルタリング
     if (this.isSubAgent && this.allowedTools) {
       this.toolRegistry.filterByAllowed(this.allowedTools);
-      console.log(`🔒 Sub-agent tool restriction: [${this.allowedTools.join(", ")}]`);
+      console.log(
+        `🔒 Sub-agent tool restriction: [${this.allowedTools.join(", ")}]`,
+      );
     }
 
     // Phase 7: セッション開始フック
@@ -229,9 +257,15 @@ export class AgentLoop {
     // スキル自動検出: ユーザー入力からマッチするスキルを見つける
     const skillMatches = this.skillLoader.findRelevantSkills(userInput);
     for (const match of skillMatches) {
-      if (!this.activeSkills.find((s) => s.manifest.name === match.skill.manifest.name)) {
+      if (
+        !this.activeSkills.find(
+          (s) => s.manifest.name === match.skill.manifest.name,
+        )
+      ) {
         this.activeSkills.push(match.skill);
-        console.log(`🎯 Auto-detected skill: ${match.skill.manifest.name} (triggers: ${match.matchedTriggers.join(", ")})`);
+        console.log(
+          `🎯 Auto-detected skill: ${match.skill.manifest.name} (triggers: ${match.matchedTriggers.join(", ")})`,
+        );
 
         // 追加ツールがあれば登録
         for (const tool of match.skill.tools) {
@@ -241,7 +275,9 @@ export class AgentLoop {
     }
 
     // スキルのプロンプト注入
-    const skillPrompt = this.skillLoader.formatSkillsForPrompt(this.activeSkills);
+    const skillPrompt = this.skillLoader.formatSkillsForPrompt(
+      this.activeSkills,
+    );
 
     const systemMessage = `You are LunaCode, an autonomous coding agent inspired by Claude Code.
 You have access to tools to help with coding tasks.
@@ -410,9 +446,7 @@ When you have enough information or the task is complete, provide a clear, conci
         console.log(
           `\n[DEBUG] LLM Response - Content: ${assistantContent?.substring(0, 100) || "(empty)"}...`,
         );
-        console.log(
-          `[DEBUG] Tool calls detected: ${toolCalls.length || 0}`,
-        );
+        console.log(`[DEBUG] Tool calls detected: ${toolCalls.length || 0}`);
 
         this.messages.push({
           role: "assistant",
@@ -430,7 +464,10 @@ When you have enough information or the task is complete, provide a clear, conci
             .join("|");
           this.recentToolCallHistory.push(toolCallKey);
           // 直近 N 件だけ保持
-          if (this.recentToolCallHistory.length > this.DUPLICATE_TOOL_THRESHOLD + 2) {
+          if (
+            this.recentToolCallHistory.length >
+            this.DUPLICATE_TOOL_THRESHOLD + 2
+          ) {
             this.recentToolCallHistory.shift();
           }
           const duplicateCount = this.recentToolCallHistory.filter(
@@ -482,11 +519,12 @@ When you have enough information or the task is complete, provide a clear, conci
                 const writeTools = ["write_file", "edit_file", "bash"];
                 if (writeTools.includes(toolCall.function.name)) {
                   try {
-                    const argSummary = toolCall.function.name === "bash"
-                      ? (parsedArgs as any).command?.substring(0, 50) || ""
-                      : (parsedArgs as any).path || "";
+                    const argSummary =
+                      toolCall.function.name === "bash"
+                        ? (parsedArgs as any).command?.substring(0, 50) || ""
+                        : (parsedArgs as any).path || "";
                     await this.checkpointManager.create(
-                      `Before: ${toolCall.function.name}(${argSummary})`
+                      `Before: ${toolCall.function.name}(${argSummary})`,
                     );
                   } catch (cpError) {
                     // チェックポイント失敗はツール実行をブロックしない
@@ -498,15 +536,17 @@ When you have enough information or the task is complete, provide a clear, conci
               if (this.approvalManager) {
                 const tool = this.toolRegistry.get(toolCall.function.name);
                 const riskLevel = (tool as any)?.riskLevel || "MEDIUM";
-                const { approved, args: finalArgs } = await this.approvalManager.checkApproval(
-                  toolCall.function.name,
-                  parsedArgs,
-                  riskLevel,
-                );
+                const { approved, args: finalArgs } =
+                  await this.approvalManager.checkApproval(
+                    toolCall.function.name,
+                    parsedArgs,
+                    riskLevel,
+                  );
                 if (!approved) {
                   this.messages.push({
                     role: "tool",
-                    content: "User rejected this tool execution. Try a different approach.",
+                    content:
+                      "User rejected this tool execution. Try a different approach.",
                     toolCallId: toolCall.id,
                   });
                   continue;
@@ -560,7 +600,11 @@ When you have enough information or the task is complete, provide a clear, conci
               await this.hookManager.emit("tool:after", {
                 toolName: toolCall.function.name,
                 toolArgs: parsedArgs,
-                toolResult: { success: toolResult.success, output: toolResult.output, error: toolResult.error },
+                toolResult: {
+                  success: toolResult.success,
+                  output: toolResult.output,
+                  error: toolResult.error,
+                },
                 iteration: this.state.iteration,
               });
 
@@ -570,26 +614,37 @@ When you have enough information or the task is complete, provide a clear, conci
                 let contentToCheck: string | null = null;
                 let filePath: string | null = null;
 
-                if (toolCall.function.name === "write_file" && toolResult.success) {
+                if (
+                  toolCall.function.name === "write_file" &&
+                  toolResult.success
+                ) {
                   filePath = (parsedArgs as any).path as string;
                   contentToCheck = (parsedArgs as any).content as string;
-                } else if (toolCall.function.name === "read_file" && toolResult.success) {
+                } else if (
+                  toolCall.function.name === "read_file" &&
+                  toolResult.success
+                ) {
                   filePath = (parsedArgs as any).path as string;
                   contentToCheck = toolResult.output;
                 }
 
                 if (contentToCheck && filePath) {
-                  const sectionPattern = /<!--\s*SECTION:\s*(\S+)\s*-->|\/\/\s*SECTION:\s*(\S+)/g;
+                  const sectionPattern =
+                    /<!--\s*SECTION:\s*(\S+)\s*-->|\/\/\s*SECTION:\s*(\S+)/g;
                   const sections: string[] = [];
                   let sm: RegExpExecArray | null;
                   while ((sm = sectionPattern.exec(contentToCheck)) !== null) {
                     sections.push(sm[1] || sm[2]);
                   }
                   if (sections.length > 0) {
-                    console.log(`[DEBUG] 🏗️ Skeleton detected in ${filePath} — unfilled sections: ${sections.join(", ")}`);
+                    console.log(
+                      `[DEBUG] 🏗️ Skeleton detected in ${filePath} — unfilled sections: ${sections.join(", ")}`,
+                    );
                     const sectionList = sections
                       .map((s, i) => {
-                        const placeholder = contentToCheck!.includes(`<!-- SECTION: ${s}`)
+                        const placeholder = contentToCheck!.includes(
+                          `<!-- SECTION: ${s}`,
+                        )
                           ? `<!-- SECTION: ${s} -->`
                           : `// SECTION: ${s}`;
                         return `${i + 1}. edit_file(path="${filePath}", oldString="${placeholder}", newString="...full ${s} content...")`;
@@ -628,8 +683,12 @@ Replace each placeholder with the REAL, COMPLETE implementation code. Do NOT lea
           // ハリネズミ検出: ファイルの存在や作成完了を主張しているが、
           // ツールを一切使わずに回答している（幻覚の典型パターン）
           const claimsFileExists =
-            /作成|完了|書き|保存|saved|created|wrote|written|already|以前|前回|finish/i.test(content) &&
-            /\.(html|ts|tsx|js|jsx|py|md|txt|json|css|rs|go|rb|java)\b/.test(content);
+            /作成|完了|書き|保存|saved|created|wrote|written|already|以前|前回|finish/i.test(
+              content,
+            ) &&
+            /\.(html|ts|tsx|js|jsx|py|md|txt|json|css|rs|go|rb|java)\b/.test(
+              content,
+            );
 
           // リトライすべき条件:
           // A) 1回目のイテレーションは常にリトライ（どんなに長い回答でも最初はツール確認が必要）
@@ -644,33 +703,39 @@ Replace each placeholder with the REAL, COMPLETE implementation code. Do NOT lea
           if (shouldRetry) {
             this.retryCount++;
 
-            const availableToolNames = this.toolRegistry.getAll().map(t => t.name).join(", ");
+            const availableToolNames = this.toolRegistry
+              .getAll()
+              .map((t) => t.name)
+              .join(", ");
 
             let retryMessage: string;
 
             if (claimsFileExists && this.retryCount === 1) {
               // ハリネズミ専用メッセージ: glob で実際に確認させる
-              console.log(`[DEBUG] ⚠️ Hallucination detected — model claims files exist without verification. Forcing glob check.`);
-              retryMessage =
-`STOP. You claimed files exist or tasks are complete, but you used NO tools to verify this.
+              console.log(
+                `[DEBUG] ⚠️ Hallucination detected — model claims files exist without verification. Forcing glob check.`,
+              );
+              retryMessage = `STOP. You claimed files exist or tasks are complete, but you used NO tools to verify this.
 You MUST use glob to check what files actually exist right now before responding.
 <tool_call>
 {"name": "glob", "arguments": {"pattern": "*", "path": "."}}
 </tool_call>`;
             } else if (isFirstIteration && this.retryCount === 1) {
               // 初回イテレーション: タスクに必要なツールを使わせる
-              console.log(`[DEBUG] ⚠️ No tool calls on first iteration. Forcing tool use.`);
-              retryMessage =
-`You did not use any tools. The task requires you to use tools — DO NOT answer from memory.
+              console.log(
+                `[DEBUG] ⚠️ No tool calls on first iteration. Forcing tool use.`,
+              );
+              retryMessage = `You did not use any tools. The task requires you to use tools — DO NOT answer from memory.
 First, check what files exist in the project:
 <tool_call>
 {"name": "glob", "arguments": {"pattern": "*", "path": "."}}
 </tool_call>`;
             } else {
               // 通常リトライ: 書式例を提示
-              console.log(`[DEBUG] ⚠️ No tool calls detected. Retry ${this.retryCount}/${this.maxRetries} with stronger prompt`);
-              retryMessage =
-`You did not use any tools. You MUST respond with a tool call.
+              console.log(
+                `[DEBUG] ⚠️ No tool calls detected. Retry ${this.retryCount}/${this.maxRetries} with stronger prompt`,
+              );
+              retryMessage = `You did not use any tools. You MUST respond with a tool call.
 Available tools: ${availableToolNames}
 
 Example:
@@ -697,7 +762,9 @@ Do NOT explain. Actually call the tool now.`;
     }
 
     // Phase 7: レスポンス完了フック
-    await this.hookManager.emit("response:complete", { iteration: this.state.iteration });
+    await this.hookManager.emit("response:complete", {
+      iteration: this.state.iteration,
+    });
 
     // メモリ圧縮を実行（Phase 1の最適化）
     await this.memorySystem.microCompact();

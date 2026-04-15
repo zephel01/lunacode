@@ -574,7 +574,7 @@ export class MemorySystem {
             results.push({
               source: "log" as const,
               content: `${file}: ${line}`,
-              relevance: matchCount / queryWords.length * 0.5, // ログは関連度を低めに
+              relevance: (matchCount / queryWords.length) * 0.5, // ログは関連度を低めに
               timestamp: Date.now(),
             });
           }

@@ -59,32 +59,47 @@ Example tool call:
     }
 
     if (tasks.length > 6) {
-      return { success: false, output: "", error: "Maximum 6 sub-tasks allowed" };
+      return {
+        success: false,
+        output: "",
+        error: "Maximum 6 sub-tasks allowed",
+      };
     }
 
     console.log(`🚀 Spawning ${tasks.length} sub-agent(s)...`);
 
     const results = await this.manager.spawnParallel(tasks);
 
-    const summary = results.map((r, i) => {
-      const statusIcon = r.status === "completed" ? "✅" : r.status === "timeout" ? "⏰" : "❌";
-      return `### Sub-agent ${i + 1} [${r.role}] ${statusIcon} ${r.status}
+    const summary = results
+      .map((r, i) => {
+        const statusIcon =
+          r.status === "completed"
+            ? "✅"
+            : r.status === "timeout"
+              ? "⏰"
+              : "❌";
+        return `### Sub-agent ${i + 1} [${r.role}] ${statusIcon} ${r.status}
 Task: ${r.task}
 Duration: ${r.durationMs}ms | Iterations: ${r.iterations}
 ${r.output ? `\nOutput:\n${r.output.substring(0, 1000)}${r.output.length > 1000 ? "\n...(truncated)" : ""}` : ""}${r.error ? `\nError: ${r.error}` : ""}`;
-    }).join("\n\n---\n\n");
+      })
+      .join("\n\n---\n\n");
 
-    const completedCount = results.filter(r => r.status === "completed").length;
+    const completedCount = results.filter(
+      (r) => r.status === "completed",
+    ).length;
     const allCompleted = completedCount === results.length;
     const failedDetails = results
-      .filter(r => r.status !== "completed")
-      .map(r => `[${r.role}] ${r.status}: ${r.error || "no output"}`)
+      .filter((r) => r.status !== "completed")
+      .map((r) => `[${r.role}] ${r.status}: ${r.error || "no output"}`)
       .join("; ");
 
     return {
       success: allCompleted,
       output: `# Sub-agent Results (${completedCount}/${results.length} completed)\n\n${summary}`,
-      error: allCompleted ? undefined : `${results.length - completedCount} sub-agent(s) failed: ${failedDetails}`,
+      error: allCompleted
+        ? undefined
+        : `${results.length - completedCount} sub-agent(s) failed: ${failedDetails}`,
     };
   }
 }

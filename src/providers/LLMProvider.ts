@@ -1,5 +1,10 @@
 // LLMプロバイダーのタイプ
-export type LLMProviderType = "openai" | "ollama" | "lmstudio" | "litellm" | "zai";
+export type LLMProviderType =
+  | "openai"
+  | "ollama"
+  | "lmstudio"
+  | "litellm"
+  | "zai";
 
 // チャットメッセージ
 export interface ChatMessage {

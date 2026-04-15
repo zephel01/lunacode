@@ -14,7 +14,10 @@ export class FallbackProvider implements ILLMProvider {
   private breakers: Map<number, CircuitBreaker>;
   private activeIndex: number = 0;
 
-  constructor(providers: ILLMProvider[], breakerOptions?: CircuitBreakerOptions) {
+  constructor(
+    providers: ILLMProvider[],
+    breakerOptions?: CircuitBreakerOptions,
+  ) {
     if (providers.length === 0) {
       throw new Error("FallbackProvider requires at least one provider");
     }
@@ -25,7 +28,9 @@ export class FallbackProvider implements ILLMProvider {
     });
   }
 
-  async chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
+  async chatCompletion(
+    request: ChatCompletionRequest,
+  ): Promise<ChatCompletionResponse> {
     const errors: Error[] = [];
 
     for (let i = 0; i < this.providers.length; i++) {
@@ -44,7 +49,9 @@ export class FallbackProvider implements ILLMProvider {
       } catch (error) {
         breaker.recordFailure();
         const providerType = this.providers[index].getType();
-        console.warn(`⚠️ ${providerType} failed: ${error instanceof Error ? error.message : error}`);
+        console.warn(
+          `⚠️ ${providerType} failed: ${error instanceof Error ? error.message : error}`,
+        );
         errors.push(error instanceof Error ? error : new Error(String(error)));
       }
     }
@@ -52,7 +59,9 @@ export class FallbackProvider implements ILLMProvider {
     throw new AggregateError(errors, "All providers failed");
   }
 
-  async *chatCompletionStream(request: ChatCompletionRequest): AsyncGenerator<StreamChunk> {
+  async *chatCompletionStream(
+    request: ChatCompletionRequest,
+  ): AsyncGenerator<StreamChunk> {
     for (let i = 0; i < this.providers.length; i++) {
       const index = (this.activeIndex + i) % this.providers.length;
       const breaker = this.breakers.get(index)!;
@@ -91,7 +100,9 @@ export class FallbackProvider implements ILLMProvider {
         }
       } catch (error) {
         breaker.recordFailure();
-        console.warn(`⚠️ ${provider.getType()} stream failed: ${error instanceof Error ? error.message : error}`);
+        console.warn(
+          `⚠️ ${provider.getType()} stream failed: ${error instanceof Error ? error.message : error}`,
+        );
       }
     }
 
@@ -102,7 +113,10 @@ export class FallbackProvider implements ILLMProvider {
     return this.providers[this.activeIndex]?.supportsStreaming?.() ?? false;
   }
 
-  async generateResponse(prompt: string, options?: GenerateResponseOptions): Promise<string> {
+  async generateResponse(
+    prompt: string,
+    options?: GenerateResponseOptions,
+  ): Promise<string> {
     return defaultGenerateResponse(this, prompt, options);
   }
 

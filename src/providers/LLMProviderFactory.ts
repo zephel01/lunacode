@@ -108,8 +108,7 @@ export class LLMProviderFactory {
         "LM Studio - Local LLM with OpenAI-compatible API. Easy to use, requires LM Studio app.",
       litellm:
         "LiteLLM - Unified API for 100+ LLM providers. Requires LiteLLM proxy server.",
-      zai:
-        "Z.AI (GLM) - Coding Plan with GLM-5.1/5-Turbo models. Dedicated coding endpoint for agents & IDEs.",
+      zai: "Z.AI (GLM) - Coding Plan with GLM-5.1/5-Turbo models. Dedicated coding endpoint for agents & IDEs.",
     };
     return descriptions[type];
   }

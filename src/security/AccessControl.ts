@@ -393,8 +393,7 @@ export class AccessControlManager {
     );
 
     if (!adminExists) {
-      const adminUser =
-        process.env.LUNACODE_ADMIN_USER || "admin";
+      const adminUser = process.env.LUNACODE_ADMIN_USER || "admin";
       const adminPassword =
         process.env.LUNACODE_ADMIN_PASSWORD ||
         crypto.randomBytes(16).toString("hex");
@@ -409,7 +408,9 @@ export class AccessControlManager {
           "   Set LUNACODE_ADMIN_USER and LUNACODE_ADMIN_PASSWORD environment variables to customize.",
         );
       } else {
-        console.log(`✅ Admin user '${adminUser}' created from environment variables.`);
+        console.log(
+          `✅ Admin user '${adminUser}' created from environment variables.`,
+        );
       }
     }
   }

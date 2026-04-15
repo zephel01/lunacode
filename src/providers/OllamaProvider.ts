@@ -73,7 +73,9 @@ export class OllamaProvider implements ILLMProvider {
       if (!this.useNativeTools && request.tools && request.tools.length > 0) {
         const toolDescriptions = request.tools
           .map((t) => {
-            const params = this.formatParametersForPrompt(t.function.parameters);
+            const params = this.formatParametersForPrompt(
+              t.function.parameters,
+            );
             return `- ${t.function.name}: ${t.function.description}\n  Parameters: ${params}`;
           })
           .join("\n");
@@ -160,7 +162,9 @@ export class OllamaProvider implements ILLMProvider {
                 promptTokens = json.prompt_eval_count || 0;
                 completionTokens = json.eval_count || 0;
                 // eval_duration はナノ秒単位なのでミリ秒に変換
-                evalDurationMs = json.eval_duration ? Math.round(json.eval_duration / 1_000_000) : 0;
+                evalDurationMs = json.eval_duration
+                  ? Math.round(json.eval_duration / 1_000_000)
+                  : 0;
 
                 let streamToolCalls: Array<{
                   id: string;
@@ -170,17 +174,19 @@ export class OllamaProvider implements ILLMProvider {
 
                 // ネイティブツールモードでの tool_calls
                 if (this.useNativeTools && json.message?.tool_calls) {
-                  streamToolCalls = json.message.tool_calls.map((tc: any, i: number) => ({
-                    id: `tool_${i}_${Date.now()}`,
-                    type: "function" as const,
-                    function: {
-                      name: tc.function.name,
-                      arguments:
-                        typeof tc.function.arguments === "string"
-                          ? tc.function.arguments
-                          : JSON.stringify(tc.function.arguments),
-                    },
-                  }));
+                  streamToolCalls = json.message.tool_calls.map(
+                    (tc: any, i: number) => ({
+                      id: `tool_${i}_${Date.now()}`,
+                      type: "function" as const,
+                      function: {
+                        name: tc.function.name,
+                        arguments:
+                          typeof tc.function.arguments === "string"
+                            ? tc.function.arguments
+                            : JSON.stringify(tc.function.arguments),
+                      },
+                    }),
+                  );
 
                   if (streamToolCalls.length > 0) {
                     console.log(
@@ -192,7 +198,8 @@ export class OllamaProvider implements ILLMProvider {
                 // ネイティブ tool_calls がなかった場合 → テキスト抽出にフォールバック
                 // （useNativeTools の状態に関係なく、テキスト内の <tool_call> を常にチェック）
                 if (streamToolCalls.length === 0 && fullContent) {
-                  const extractedCalls = this.extractToolCallsFromText(fullContent);
+                  const extractedCalls =
+                    this.extractToolCallsFromText(fullContent);
                   if (extractedCalls.length > 0) {
                     console.log(
                       `[DEBUG] Extracted ${extractedCalls.length} tool call(s) from streamed content (fallback)`,
@@ -203,7 +210,11 @@ export class OllamaProvider implements ILLMProvider {
 
                 // 空レスポンス検出: ネイティブモードで content も tool_calls もない
                 // → 次回以降テキスト抽出モードに切り替え
-                if (this.useNativeTools && !fullContent && streamToolCalls.length === 0) {
+                if (
+                  this.useNativeTools &&
+                  !fullContent &&
+                  streamToolCalls.length === 0
+                ) {
                   console.log(
                     `[DEBUG] ⚠️ Empty streaming response with native tools. Switching to text extraction mode for model: ${request.model || this.model}`,
                   );
@@ -228,7 +239,9 @@ export class OllamaProvider implements ILLMProvider {
                     prompt_tokens: promptTokens,
                     completion_tokens: completionTokens,
                     total_tokens: promptTokens + completionTokens,
-                    ...(evalDurationMs > 0 ? { durationMs: evalDurationMs } : {}),
+                    ...(evalDurationMs > 0
+                      ? { durationMs: evalDurationMs }
+                      : {}),
                   },
                 };
               }
@@ -362,9 +375,7 @@ export class OllamaProvider implements ILLMProvider {
         },
       }));
 
-      console.log(
-        `[DEBUG] Native tool calls: ${toolCalls.length} calls`,
-      );
+      console.log(`[DEBUG] Native tool calls: ${toolCalls.length} calls`);
       toolCalls.forEach((tc) => {
         console.log(`[DEBUG]   ✅ ${tc.function.name}`);
       });
@@ -540,7 +551,9 @@ export class OllamaProvider implements ILLMProvider {
           if (jsonStr) {
             const parsed = this.tryParseToolCall(jsonStr);
             if (parsed) {
-              console.log("[DEBUG] Pattern 1b: extracted tool call from unclosed <tool_call> tag");
+              console.log(
+                "[DEBUG] Pattern 1b: extracted tool call from unclosed <tool_call> tag",
+              );
               toolCalls.push(this.createToolCall(toolCalls.length, parsed));
             }
           }
@@ -553,7 +566,8 @@ export class OllamaProvider implements ILLMProvider {
       const jsonBlockPattern = /```(?:json)?\s*([\s\S]*?)\s*```/g;
       while ((match = jsonBlockPattern.exec(content)) !== null) {
         const parsed = this.tryParseToolCall(match[1].trim());
-        if (parsed) toolCalls.push(this.createToolCall(toolCalls.length, parsed));
+        if (parsed)
+          toolCalls.push(this.createToolCall(toolCalls.length, parsed));
       }
     }
 
@@ -567,7 +581,8 @@ export class OllamaProvider implements ILLMProvider {
           if (Array.isArray(arr)) {
             for (const item of arr) {
               const parsed = this.normalizeToolData(item);
-              if (parsed) toolCalls.push(this.createToolCall(toolCalls.length, parsed));
+              if (parsed)
+                toolCalls.push(this.createToolCall(toolCalls.length, parsed));
             }
           }
         } catch (e) {
@@ -587,10 +602,12 @@ export class OllamaProvider implements ILLMProvider {
           const jsonStr = this.extractBalancedJson(content, jsonStart);
           if (jsonStr) {
             const args = JSON.parse(jsonStr);
-            toolCalls.push(this.createToolCall(toolCalls.length, {
-              name: match[1],
-              arguments: args,
-            }));
+            toolCalls.push(
+              this.createToolCall(toolCalls.length, {
+                name: match[1],
+                arguments: args,
+              }),
+            );
           }
         } catch (e) {
           // パースエラーは継続
@@ -601,14 +618,16 @@ export class OllamaProvider implements ILLMProvider {
     // パターン5: Mistral 関数呼び出し形式
     // 例: [{"name": "write_file", "arguments": {...}}]
     if (toolCalls.length === 0) {
-      const arrayPattern = /(?:^|\n)\s*(\[\s*\{[\s\S]*?"name"\s*:[\s\S]*?\}\s*\])/g;
+      const arrayPattern =
+        /(?:^|\n)\s*(\[\s*\{[\s\S]*?"name"\s*:[\s\S]*?\}\s*\])/g;
       while ((match = arrayPattern.exec(content)) !== null) {
         try {
           const arr = JSON.parse(match[1]);
           if (Array.isArray(arr)) {
             for (const item of arr) {
               const parsed = this.normalizeToolData(item);
-              if (parsed) toolCalls.push(this.createToolCall(toolCalls.length, parsed));
+              if (parsed)
+                toolCalls.push(this.createToolCall(toolCalls.length, parsed));
             }
           }
         } catch (e) {
@@ -621,18 +640,24 @@ export class OllamaProvider implements ILLMProvider {
     // テキスト中の {"name": "...", "arguments": {...}} を直接検出
     // ネストされた arguments にも対応するためブレースバランスで抽出
     if (toolCalls.length === 0) {
-      const rawJsonHeaderPattern = /\{\s*"name"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*\{/g;
+      const rawJsonHeaderPattern =
+        /\{\s*"name"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*\{/g;
       while ((match = rawJsonHeaderPattern.exec(content)) !== null) {
         try {
           // "arguments": { の '{' から開始してバランスの取れた JSON を抽出
-          const argsStart = content.indexOf("{", match.index + match[0].length - 1);
+          const argsStart = content.indexOf(
+            "{",
+            match.index + match[0].length - 1,
+          );
           const argsStr = this.extractBalancedJson(content, argsStart);
           if (argsStr) {
             const args = JSON.parse(argsStr);
-            toolCalls.push(this.createToolCall(toolCalls.length, {
-              name: match[1],
-              arguments: args,
-            }));
+            toolCalls.push(
+              this.createToolCall(toolCalls.length, {
+                name: match[1],
+                arguments: args,
+              }),
+            );
           }
         } catch (e) {
           // パースエラーは継続
@@ -641,7 +666,9 @@ export class OllamaProvider implements ILLMProvider {
     }
 
     if (toolCalls.length > 0) {
-      console.log(`[DEBUG] Extracted ${toolCalls.length} tool call(s) using text patterns`);
+      console.log(
+        `[DEBUG] Extracted ${toolCalls.length} tool call(s) using text patterns`,
+      );
     }
 
     return toolCalls;
@@ -655,7 +682,10 @@ export class OllamaProvider implements ILLMProvider {
     if (!schema || !schema.properties) return "{}";
 
     const parts: string[] = [];
-    for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
+    for (const [key, prop] of Object.entries(schema.properties) as [
+      string,
+      any,
+    ][]) {
       const required = schema.required?.includes(key) ? " (required)" : "";
 
       if (prop.type === "array" && prop.items?.type === "object") {
@@ -683,7 +713,11 @@ export class OllamaProvider implements ILLMProvider {
    * ネストされた {} や [] を正しくハンドリングする
    */
   private extractBalancedJson(text: string, startIndex: number): string | null {
-    if (startIndex < 0 || startIndex >= text.length || text[startIndex] !== "{") {
+    if (
+      startIndex < 0 ||
+      startIndex >= text.length ||
+      text[startIndex] !== "{"
+    ) {
       return null;
     }
 
@@ -727,7 +761,9 @@ export class OllamaProvider implements ILLMProvider {
   /**
    * JSON テキストをツール呼び出しデータとしてパース試行
    */
-  private tryParseToolCall(text: string): { name: string; arguments: Record<string, unknown> } | null {
+  private tryParseToolCall(
+    text: string,
+  ): { name: string; arguments: Record<string, unknown> } | null {
     try {
       const data = JSON.parse(text);
       return this.normalizeToolData(data);
@@ -740,7 +776,9 @@ export class OllamaProvider implements ILLMProvider {
    * 様々なフォーマットのツールデータを正規化
    * { name, arguments } / { function: { name, arguments } } / { tool: name, ... } に対応
    */
-  private normalizeToolData(data: any): { name: string; arguments: Record<string, unknown> } | null {
+  private normalizeToolData(
+    data: any,
+  ): { name: string; arguments: Record<string, unknown> } | null {
     if (!data || typeof data !== "object") return null;
 
     // 標準形式: { name, arguments }
@@ -773,15 +811,19 @@ export class OllamaProvider implements ILLMProvider {
   /**
    * ToolCall オブジェクトを生成
    */
-  private createToolCall(index: number, data: { name: string; arguments: Record<string, unknown> }): ToolCall {
+  private createToolCall(
+    index: number,
+    data: { name: string; arguments: Record<string, unknown> },
+  ): ToolCall {
     return {
       id: `tool_${index}_${Date.now()}`,
       type: "function",
       function: {
         name: data.name,
-        arguments: typeof data.arguments === "string"
-          ? data.arguments
-          : JSON.stringify(data.arguments),
+        arguments:
+          typeof data.arguments === "string"
+            ? data.arguments
+            : JSON.stringify(data.arguments),
       },
     };
   }

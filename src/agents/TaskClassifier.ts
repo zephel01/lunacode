@@ -67,8 +67,7 @@ export class TaskClassifier {
     }
     return {
       complexity: "moderate",
-      reason:
-        "Moderate complexity - using heavy model for safety",
+      reason: "Moderate complexity - using heavy model for safety",
       suggestedModel: "heavy",
     };
   }

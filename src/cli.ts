@@ -21,7 +21,11 @@ type DaemonModule = typeof import("./daemon/KAIROSDaemon.js");
 interface SpeedTracker {
   callbacks: {
     onToken: (token: string) => void;
-    onUsage: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
+    onUsage: (usage: {
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+    }) => void;
   };
   printSummary: () => void;
 }
@@ -63,11 +67,18 @@ function createSpeedTracker(verbose = false): SpeedTracker {
       if (verbose && now - lastPrintTime >= 1000) {
         const elapsed = (now - sessionStart) / 1000;
         const speed = elapsed > 0 ? (sessionTokens / elapsed).toFixed(1) : "0";
-        process.stdout.write(`\r\x1b[K⚡ ${speed} tokens/sec (計 ${totalTokens} tokens)...`);
+        process.stdout.write(
+          `\r\x1b[K⚡ ${speed} tokens/sec (計 ${totalTokens} tokens)...`,
+        );
         lastPrintTime = now;
       }
     },
-    onUsage: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; durationMs?: number }) => {
+    onUsage: (usage: {
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+      durationMs?: number;
+    }) => {
       if (usage.durationMs && usage.durationMs > 0) {
         // プロバイダーが正確な生成時間を提供（Ollama の eval_duration）
         providerTotalTokens += usage.completion_tokens;
@@ -94,7 +105,9 @@ function createSpeedTracker(verbose = false): SpeedTracker {
       // Ollama など正確な値が得られた場合
       const elapsed = providerTotalDurationMs / 1000;
       const speed = (providerTotalTokens / elapsed).toFixed(1);
-      console.log(`⚡ ${speed} tokens/sec | ${providerTotalTokens} tokens | ${elapsed.toFixed(1)}s`);
+      console.log(
+        `⚡ ${speed} tokens/sec | ${providerTotalTokens} tokens | ${elapsed.toFixed(1)}s`,
+      );
     } else {
       // フォールバック計測
       let streamingMs = totalStreamingMs;
@@ -105,7 +118,9 @@ function createSpeedTracker(verbose = false): SpeedTracker {
       if (streamingMs > 0) {
         const elapsed = streamingMs / 1000;
         const speed = (totalTokens / elapsed).toFixed(1);
-        console.log(`⚡ ${speed} tokens/sec | ${totalTokens} tokens | ${elapsed.toFixed(1)}s`);
+        console.log(
+          `⚡ ${speed} tokens/sec | ${totalTokens} tokens | ${elapsed.toFixed(1)}s`,
+        );
       } else {
         console.log(`⚡ ${totalTokens} tokens generated`);
       }
@@ -152,15 +167,19 @@ function prompt(question: string): Promise<string> {
 /**
  * Ollama API からモデル一覧を取得
  */
-async function fetchOllamaModels(baseUrl: string): Promise<Array<{ name: string; size: string; modified: string }>> {
+async function fetchOllamaModels(
+  baseUrl: string,
+): Promise<Array<{ name: string; size: string; modified: string }>> {
   try {
     const response = await fetch(`${baseUrl}/api/tags`);
     if (!response.ok) return [];
-    const data = await response.json() as any;
+    const data = (await response.json()) as any;
     return (data.models || []).map((m: any) => ({
       name: m.name,
       size: m.size ? `${(m.size / 1024 / 1024 / 1024).toFixed(1)}GB` : "?",
-      modified: m.modified_at ? new Date(m.modified_at).toLocaleDateString() : "?",
+      modified: m.modified_at
+        ? new Date(m.modified_at).toLocaleDateString()
+        : "?",
     }));
   } catch {
     return [];
@@ -174,7 +193,7 @@ async function fetchLMStudioModels(baseUrl: string): Promise<string[]> {
   try {
     const response = await fetch(`${baseUrl}/models`);
     if (!response.ok) return [];
-    const data = await response.json() as any;
+    const data = (await response.json()) as any;
     return (data.data || []).map((m: any) => m.id);
   } catch {
     return [];
@@ -184,7 +203,10 @@ async function fetchLMStudioModels(baseUrl: string): Promise<string[]> {
 /**
  * 番号選択のプロンプト表示
  */
-async function selectFromList(items: string[], promptMsg: string): Promise<string> {
+async function selectFromList(
+  items: string[],
+  promptMsg: string,
+): Promise<string> {
   console.log("");
   items.forEach((item, i) => {
     console.log(`  ${i + 1}) ${item}`);
@@ -200,7 +222,10 @@ async function selectFromList(items: string[], promptMsg: string): Promise<strin
   return answer || items[0];
 }
 
-async function handleInitCommand(kairosPath: string, args: string[]): Promise<void> {
+async function handleInitCommand(
+  kairosPath: string,
+  args: string[],
+): Promise<void> {
   const configPath = path.join(kairosPath, "config.json");
 
   // 既存の config.json をチェック
@@ -277,9 +302,14 @@ async function handleInitCommand(kairosPath: string, args: string[]): Promise<vo
   switch (provider) {
     case "openai": {
       const apiKey = process.env.OPENAI_API_KEY || "";
-      const baseUrl = await prompt("Base URL [default: https://api.openai.com/v1]: ");
+      const baseUrl = await prompt(
+        "Base URL [default: https://api.openai.com/v1]: ",
+      );
       const models = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"];
-      const model = await selectFromList(models, "モデルを選択 (番号 or 直接入力) [default: 1]: ");
+      const model = await selectFromList(
+        models,
+        "モデルを選択 (番号 or 直接入力) [default: 1]: ",
+      );
       config.llm.openai = {
         apiKey: apiKey || "YOUR_API_KEY_HERE",
         baseUrl: baseUrl || "https://api.openai.com/v1",
@@ -288,7 +318,9 @@ async function handleInitCommand(kairosPath: string, args: string[]): Promise<vo
       break;
     }
     case "ollama": {
-      const baseUrl = await prompt("Ollama URL [default: http://localhost:11434]: ") || "http://localhost:11434";
+      const baseUrl =
+        (await prompt("Ollama URL [default: http://localhost:11434]: ")) ||
+        "http://localhost:11434";
 
       // Ollama からモデル一覧を取得
       console.log(`\n🔍 ${baseUrl} からモデル一覧を取得中...`);
@@ -302,7 +334,9 @@ async function handleInitCommand(kairosPath: string, args: string[]): Promise<vo
           console.log(`  ${i + 1}) ${m.name}  (${m.size}, ${m.modified})`);
         });
         console.log("");
-        const modelAnswer = await prompt("モデルを選択 (番号 or 直接入力) [default: 1]: ");
+        const modelAnswer = await prompt(
+          "モデルを選択 (番号 or 直接入力) [default: 1]: ",
+        );
         const modelNum = parseInt(modelAnswer, 10);
         if (modelNum >= 1 && modelNum <= ollamaModels.length) {
           model = ollamaModels[modelNum - 1].name;
@@ -312,9 +346,15 @@ async function handleInitCommand(kairosPath: string, args: string[]): Promise<vo
           model = ollamaModels[0].name;
         }
       } else {
-        console.log("⚠️  Ollama に接続できないか、モデルがインストールされていません");
-        console.log("   ollama pull llama3.1 などでモデルをインストールしてください");
-        const modelInput = await prompt("モデル名を直接入力 [default: llama3.1]: ");
+        console.log(
+          "⚠️  Ollama に接続できないか、モデルがインストールされていません",
+        );
+        console.log(
+          "   ollama pull llama3.1 などでモデルをインストールしてください",
+        );
+        const modelInput = await prompt(
+          "モデル名を直接入力 [default: llama3.1]: ",
+        );
         model = modelInput || "llama3.1";
       }
 
@@ -326,7 +366,9 @@ async function handleInitCommand(kairosPath: string, args: string[]): Promise<vo
       break;
     }
     case "lmstudio": {
-      const baseUrl = await prompt("LM Studio URL [default: http://localhost:1234/v1]: ") || "http://localhost:1234/v1";
+      const baseUrl =
+        (await prompt("LM Studio URL [default: http://localhost:1234/v1]: ")) ||
+        "http://localhost:1234/v1";
 
       // LM Studio からモデル一覧を取得
       console.log(`\n🔍 ${baseUrl} からモデル一覧を取得中...`);
@@ -335,11 +377,18 @@ async function handleInitCommand(kairosPath: string, args: string[]): Promise<vo
       let model = "local-model";
       if (lmsModels.length > 0) {
         console.log(`\n📦 ロード済みモデル (${lmsModels.length}件):`);
-        model = await selectFromList(lmsModels, "モデルを選択 (番号 or 直接入力) [default: 1]: ");
+        model = await selectFromList(
+          lmsModels,
+          "モデルを選択 (番号 or 直接入力) [default: 1]: ",
+        );
         model = model || lmsModels[0];
       } else {
-        console.log("⚠️  LM Studio に接続できないか、モデルがロードされていません");
-        const modelInput = await prompt("モデル名を直接入力 [default: local-model]: ");
+        console.log(
+          "⚠️  LM Studio に接続できないか、モデルがロードされていません",
+        );
+        const modelInput = await prompt(
+          "モデル名を直接入力 [default: local-model]: ",
+        );
         model = modelInput || "local-model";
       }
 
@@ -351,13 +400,26 @@ async function handleInitCommand(kairosPath: string, args: string[]): Promise<vo
       break;
     }
     case "zai": {
-      const apiKey = process.env.ZAI_API_KEY || process.env.ZHIPUAI_API_KEY || "";
+      const apiKey =
+        process.env.ZAI_API_KEY || process.env.ZHIPUAI_API_KEY || "";
       if (!apiKey) {
         console.log("ℹ️  ZAI_API_KEY 環境変数が未設定です");
       }
-      const models = ["glm-5.1", "glm-5", "glm-5-turbo", "glm-4.7", "glm-4.7-flashx", "glm-4.5"];
-      const model = await selectFromList(models, "モデルを選択 (番号 or 直接入力) [default: 1]: ");
-      const useCodingAnswer = await prompt("Coding Endpoint を使用? (y/n) [default: y]: ");
+      const models = [
+        "glm-5.1",
+        "glm-5",
+        "glm-5-turbo",
+        "glm-4.7",
+        "glm-4.7-flashx",
+        "glm-4.5",
+      ];
+      const model = await selectFromList(
+        models,
+        "モデルを選択 (番号 or 直接入力) [default: 1]: ",
+      );
+      const useCodingAnswer = await prompt(
+        "Coding Endpoint を使用? (y/n) [default: y]: ",
+      );
       const useCoding = useCodingAnswer.toLowerCase() !== "n";
       config.llm.zai = {
         apiKey: apiKey || "YOUR_API_KEY_HERE",
@@ -367,7 +429,9 @@ async function handleInitCommand(kairosPath: string, args: string[]): Promise<vo
       break;
     }
     case "litellm": {
-      const baseUrl = await prompt("LiteLLM URL [default: http://localhost:4000/v1]: ") || "http://localhost:4000/v1";
+      const baseUrl =
+        (await prompt("LiteLLM URL [default: http://localhost:4000/v1]: ")) ||
+        "http://localhost:4000/v1";
       const modelInput = await prompt("モデル名 [default: gpt-4o-mini]: ");
       config.llm.litellm = {
         baseUrl,
@@ -394,7 +458,10 @@ async function handleInitCommand(kairosPath: string, args: string[]): Promise<vo
 /**
  * config コマンド: 現在の設定を表示・変更
  */
-async function handleConfigCommand(kairosPath: string, args: string[]): Promise<void> {
+async function handleConfigCommand(
+  kairosPath: string,
+  args: string[],
+): Promise<void> {
   const subCommand = args[1] || "show";
   const configManager = new ConfigManager(kairosPath);
   await configManager.load();
@@ -407,7 +474,9 @@ async function handleConfigCommand(kairosPath: string, args: string[]): Promise<
         console.log("📋 Current configuration:\n");
         console.log(content);
       } catch {
-        console.log("ℹ️  No config.json found. Run 'lunacode init' to create one.");
+        console.log(
+          "ℹ️  No config.json found. Run 'lunacode init' to create one.",
+        );
       }
       break;
     }
@@ -455,22 +524,31 @@ async function handleConfigCommand(kairosPath: string, args: string[]): Promise<
         console.log(`🔍 ${baseUrl} からモデル一覧を取得中...\n`);
         const models = await fetchOllamaModels(baseUrl);
         if (models.length === 0) {
-          console.log("⚠️  モデルが見つかりません。Ollama が起動しているか確認してください。");
+          console.log(
+            "⚠️  モデルが見つかりません。Ollama が起動しているか確認してください。",
+          );
           return;
         }
         console.log(`📦 インストール済みモデル (${models.length}件):\n`);
         models.forEach((m, i) => {
-          const current = m.name === providerConfig.model ? " ← 現在の設定" : "";
-          console.log(`  ${i + 1}) ${m.name}  (${m.size}, ${m.modified})${current}`);
+          const current =
+            m.name === providerConfig.model ? " ← 現在の設定" : "";
+          console.log(
+            `  ${i + 1}) ${m.name}  (${m.size}, ${m.modified})${current}`,
+          );
         });
         console.log("");
-        console.log('モデルを変更: lunacode config set llm.ollama.model <model-name>');
+        console.log(
+          "モデルを変更: lunacode config set llm.ollama.model <model-name>",
+        );
       } else if (providerConfig.type === "lmstudio") {
         const baseUrl = providerConfig.baseUrl || "http://localhost:1234/v1";
         console.log(`🔍 ${baseUrl} からモデル一覧を取得中...\n`);
         const models = await fetchLMStudioModels(baseUrl);
         if (models.length === 0) {
-          console.log("⚠️  モデルが見つかりません。LM Studio が起動しているか確認してください。");
+          console.log(
+            "⚠️  モデルが見つかりません。LM Studio が起動しているか確認してください。",
+          );
           return;
         }
         console.log(`📦 ロード済みモデル (${models.length}件):\n`);
@@ -480,7 +558,14 @@ async function handleConfigCommand(kairosPath: string, args: string[]): Promise<
         });
       } else if (providerConfig.type === "zai") {
         console.log("📦 Z.AI 利用可能モデル:\n");
-        const models = ["glm-5.1", "glm-5", "glm-5-turbo", "glm-4.7", "glm-4.7-flashx", "glm-4.5"];
+        const models = [
+          "glm-5.1",
+          "glm-5",
+          "glm-5-turbo",
+          "glm-4.7",
+          "glm-4.7-flashx",
+          "glm-4.5",
+        ];
         models.forEach((m) => {
           const current = m === providerConfig.model ? " ← 現在の設定" : "";
           console.log(`  - ${m}${current}`);
@@ -1192,7 +1277,9 @@ async function handleChatMode(kairosPath: string): Promise<void> {
   await agent.initialize();
 
   console.log("🚀 LunaCode Interactive Mode");
-  console.log(`📡 Provider: ${provider.getType()} | Model: ${provider.getDefaultModel()}`);
+  console.log(
+    `📡 Provider: ${provider.getType()} | Model: ${provider.getDefaultModel()}`,
+  );
   console.log("   Type your query and press Enter. Commands:");
   console.log("   /exit, /quit  — 終了");
   console.log("   /clear        — 会話履歴をクリア");
@@ -1237,7 +1324,9 @@ async function handleChatMode(kairosPath: string): Promise<void> {
         const state = agent.getState();
         console.log(`\n📊 Agent Status:`);
         console.log(`   Phase: ${state.phase}`);
-        console.log(`   Iteration: ${state.iteration} / ${state.maxIterations}`);
+        console.log(
+          `   Iteration: ${state.iteration} / ${state.maxIterations}`,
+        );
         console.log(`   Last Action: ${state.action || "none"}\n`);
         rl.prompt();
         return;
@@ -1250,7 +1339,9 @@ async function handleChatMode(kairosPath: string): Promise<void> {
         console.log(`\n📊 Memory:`);
         console.log(`   Lines: ${stats.memoryLines}`);
         console.log(`   Topics: ${stats.topicCount}`);
-        console.log(`   Size: ${(stats.totalSizeBytes / 1024).toFixed(2)} KB\n`);
+        console.log(
+          `   Size: ${(stats.totalSizeBytes / 1024).toFixed(2)} KB\n`,
+        );
         rl.prompt();
         return;
       }
@@ -1271,7 +1362,10 @@ async function handleChatMode(kairosPath: string): Promise<void> {
       console.log("\n" + response + "\n");
       tracker.printSummary();
     } catch (error) {
-      console.error("Error:", error instanceof Error ? error.message : String(error));
+      console.error(
+        "Error:",
+        error instanceof Error ? error.message : String(error),
+      );
     }
 
     rl.prompt();
@@ -1314,13 +1408,17 @@ async function handleAutoMode(
     if (agent.activateSkill(skillName)) {
       console.log(`🎯 Skill activated: ${skillName}`);
     } else {
-      console.warn(`⚠️ Skill "${skillName}" not found. Continuing without skill.`);
+      console.warn(
+        `⚠️ Skill "${skillName}" not found. Continuing without skill.`,
+      );
       console.log(`   Run "lunacode skill list" to see available skills.`);
     }
   }
 
   console.log("🤖 LunaCode Auto Mode");
-  console.log(`📡 Provider: ${provider.getType()} | Model: ${provider.getDefaultModel()}`);
+  console.log(
+    `📡 Provider: ${provider.getType()} | Model: ${provider.getDefaultModel()}`,
+  );
   console.log(`🎯 Task: ${initialQuery}`);
   console.log(`🔄 Max Rounds: ${maxRounds}`);
   if (skillName) console.log(`📦 Skill: ${skillName}`);
@@ -1346,9 +1444,17 @@ async function handleAutoMode(
       // レスポンスに「完了」「finished」「done」等が含まれるか、
       // ツールコールが無くテキストのみの応答なら完了と判断
       const completionKeywords = [
-        "完了", "作成しました", "作成完了", "以上です", "完成",
-        "finished", "done", "completed", "created successfully",
-        "here is the", "here's the",
+        "完了",
+        "作成しました",
+        "作成完了",
+        "以上です",
+        "完成",
+        "finished",
+        "done",
+        "completed",
+        "created successfully",
+        "here is the",
+        "here's the",
       ];
 
       const lowerResponse = response.toLowerCase();
@@ -1364,15 +1470,18 @@ async function handleAutoMode(
 
       // 継続: LLMの応答を元に次のクエリを生成
       // レスポンスが質問で終わっている場合は自動的に進める
-      const endsWithQuestion = response.trim().endsWith("？") || response.trim().endsWith("?");
+      const endsWithQuestion =
+        response.trim().endsWith("？") || response.trim().endsWith("?");
 
       if (endsWithQuestion) {
         // 質問に対して自動応答: 「はい、お願いします」で進める
-        currentQuery = "はい、お願いします。自動で進めてください。ファイルを作成して完成させてください。";
+        currentQuery =
+          "はい、お願いします。自動で進めてください。ファイルを作成して完成させてください。";
         console.log(`\n🤖 Auto-reply: ${currentQuery}`);
       } else {
         // 質問でない場合は「続けて」で次のステップへ
-        currentQuery = "続けてください。次のステップに進んでください。全てのファイルを作成して完成させてください。";
+        currentQuery =
+          "続けてください。次のステップに進んでください。全てのファイルを作成して完成させてください。";
         console.log(`\n🤖 Auto-continue: 次のステップへ...`);
       }
     } catch (error) {
@@ -1424,7 +1533,9 @@ async function handleSkillCommand(kairosPath: string, args: string[]) {
       console.log("\n📦 Installed Skills\n");
       console.log(loader.formatSkillList());
       console.log(`\nSkills directory: ${path.join(kairosPath, "skills")}`);
-      console.log('Run "lunacode skill create <name>" to create a new skill.\n');
+      console.log(
+        'Run "lunacode skill create <name>" to create a new skill.\n',
+      );
       break;
     }
 
@@ -1432,15 +1543,21 @@ async function handleSkillCommand(kairosPath: string, args: string[]) {
     case "new": {
       const name = args[1];
       if (!name) {
-        console.error('Usage: lunacode skill create <skill-name> ["description"]');
+        console.error(
+          'Usage: lunacode skill create <skill-name> ["description"]',
+        );
         process.exit(1);
       }
       const description = args[2] || `Custom skill: ${name}`;
       const skillDir = await loader.createSkillTemplate(name, description);
       console.log(`\n✅ Skill template created at: ${skillDir}`);
       console.log(`\nEdit the following files to customize your skill:`);
-      console.log(`  📝 ${path.join(skillDir, "SKILL.md")}  — 指示書（LLM に注入される）`);
-      console.log(`  📋 ${path.join(skillDir, "skill.json")} — メタデータ・トリガーワード\n`);
+      console.log(
+        `  📝 ${path.join(skillDir, "SKILL.md")}  — 指示書（LLM に注入される）`,
+      );
+      console.log(
+        `  📋 ${path.join(skillDir, "skill.json")} — メタデータ・トリガーワード\n`,
+      );
       break;
     }
 
@@ -1501,7 +1618,7 @@ async function handleSkillCommand(kairosPath: string, args: string[]) {
 
     default:
       console.error(`Unknown skill command: ${subCommand}`);
-      console.log('Available: list, create, enable, disable, show');
+      console.log("Available: list, create, enable, disable, show");
       process.exit(1);
   }
 }
@@ -1551,17 +1668,27 @@ async function main() {
     }
     // --rounds N オプション
     const roundsIdx = args.indexOf("--rounds");
-    const maxRounds = roundsIdx >= 0 ? parseInt(args[roundsIdx + 1], 10) || 10 : 10;
+    const maxRounds =
+      roundsIdx >= 0 ? parseInt(args[roundsIdx + 1], 10) || 10 : 10;
     // --skill name オプション
     const skillIdx = args.indexOf("--skill");
     const skillName = skillIdx >= 0 ? args[skillIdx + 1] : undefined;
     // オプション引数を除外
-    const queryParts = args.slice(1).filter(
-      (a, i) =>
-        a !== "--rounds" && a !== "--skill" &&
-        args[i] !== "--rounds" && args[i] !== "--skill",
+    const queryParts = args
+      .slice(1)
+      .filter(
+        (a, i) =>
+          a !== "--rounds" &&
+          a !== "--skill" &&
+          args[i] !== "--rounds" &&
+          args[i] !== "--skill",
+      );
+    await handleAutoMode(
+      kairosPath,
+      queryParts.join(" "),
+      maxRounds,
+      skillName,
     );
-    await handleAutoMode(kairosPath, queryParts.join(" "), maxRounds, skillName);
     process.exit(0);
   }
 
@@ -1574,7 +1701,8 @@ async function main() {
       process.exit(1);
     }
     const roundsIdx = args.indexOf("--rounds");
-    const maxRounds = roundsIdx >= 0 ? parseInt(args[roundsIdx + 1], 10) || 10 : 10;
+    const maxRounds =
+      roundsIdx >= 0 ? parseInt(args[roundsIdx + 1], 10) || 10 : 10;
     await handleAutoMode(kairosPath, query, maxRounds, skillName);
     process.exit(0);
   }
@@ -1586,11 +1714,7 @@ async function main() {
   }
 
   // ヘルプコマンド
-  if (
-    command === "--help" ||
-    command === "-h" ||
-    command === "help"
-  ) {
+  if (command === "--help" || command === "-h" || command === "help") {
     console.log(`
 LunaCode - KAIROS Autonomous Coding Agent
 

@@ -222,7 +222,10 @@ export class ApprovalManager {
    * @param args Arguments passed to the tool
    * @returns Description string
    */
-  private generateDescription(toolName: string, args: Record<string, unknown>): string {
+  private generateDescription(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): string {
     if (toolName === "write_file") {
       return `Write file: ${args.filePath}`;
     }
@@ -273,7 +276,12 @@ export class ApprovalManager {
       try {
         // For edit_file, we'd need the file content
         // This is a simplified version - in practice, you'd read the file
-        return DiffGenerator.generateEditDiff(filePath, oldString, newString, "");
+        return DiffGenerator.generateEditDiff(
+          filePath,
+          oldString,
+          newString,
+          "",
+        );
       } catch {
         return undefined;
       }

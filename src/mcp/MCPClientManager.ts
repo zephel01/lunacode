@@ -16,7 +16,7 @@ export class MCPClientManager {
       } catch (error) {
         console.warn(
           `Failed to connect to MCP server ${serverConfig.name}:`,
-          error
+          error,
         );
       }
     }
@@ -41,12 +41,12 @@ export class MCPClientManager {
         this.toolRegistry.register(wrappedTool);
       }
       console.log(
-        `✓ Connected to MCP server ${config.name} with ${tools.length} tools`
+        `✓ Connected to MCP server ${config.name} with ${tools.length} tools`,
       );
     } catch (error) {
       console.warn(
         `Failed to list tools from MCP server ${config.name}:`,
-        error
+        error,
       );
       // Still keep the connection, might be able to call tools directly
     }
@@ -85,7 +85,7 @@ export class MCPClientManager {
   private wrapMCPTool(
     serverName: string,
     mcpTool: MCPTool,
-    conn: MCPConnection
+    conn: MCPConnection,
   ): Tool {
     const toolName = `mcp_${serverName}_${mcpTool.name}`;
     const description = `[MCP:${serverName}] ${mcpTool.description}`;
@@ -99,7 +99,7 @@ export class MCPClientManager {
         try {
           const result = await conn.callTool(
             mcpTool.name,
-            (params as Record<string, unknown>) || {}
+            (params as Record<string, unknown>) || {},
           );
 
           // Extract text content from result

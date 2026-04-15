@@ -50,9 +50,7 @@ export class ZAIProvider implements ILLMProvider {
 
   constructor(config: ZAIProviderConfig) {
     const apiKey =
-      config.apiKey ||
-      process.env.ZAI_API_KEY ||
-      process.env.ZHIPUAI_API_KEY;
+      config.apiKey || process.env.ZAI_API_KEY || process.env.ZHIPUAI_API_KEY;
 
     if (!apiKey) {
       throw new Error(
@@ -61,9 +59,7 @@ export class ZAIProvider implements ILLMProvider {
     }
 
     const useCoding =
-      config.useCodingEndpoint !== undefined
-        ? config.useCodingEndpoint
-        : true; // デフォルトで Coding エンドポイントを使用
+      config.useCodingEndpoint !== undefined ? config.useCodingEndpoint : true; // デフォルトで Coding エンドポイントを使用
 
     const baseUrl =
       config.baseUrl ||

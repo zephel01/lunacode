@@ -157,7 +157,9 @@ export class ConfigManager {
     } catch (error) {
       // ファイルが存在しない場合はデフォルト設定を使用
       console.log("ℹ️  No config.json found, using default configuration");
-      console.log("   Run 'lunacode init' or create .kairos/config.json to configure");
+      console.log(
+        "   Run 'lunacode init' or create .kairos/config.json to configure",
+      );
       return this.config;
     }
   }
@@ -186,8 +188,7 @@ export class ConfigManager {
             process.env.OPENAI_API_KEY ||
             process.env.LUNACODE_API_KEY,
           baseUrl:
-            this.config.llm.openai?.baseUrl ||
-            process.env.OPENAI_BASE_URL,
+            this.config.llm.openai?.baseUrl || process.env.OPENAI_BASE_URL,
           model:
             this.config.llm.openai?.model ||
             this.config.llm.model ||
@@ -234,8 +235,7 @@ export class ConfigManager {
             process.env.LITELLM_BASE_URL ||
             "http://localhost:4000/v1",
           apiKey:
-            this.config.llm.litellm?.apiKey ||
-            process.env.LITELLM_API_KEY,
+            this.config.llm.litellm?.apiKey || process.env.LITELLM_API_KEY,
           model:
             this.config.llm.litellm?.model ||
             this.config.llm.model ||
@@ -251,9 +251,7 @@ export class ConfigManager {
             this.config.llm.zai?.apiKey ||
             process.env.ZAI_API_KEY ||
             process.env.ZHIPUAI_API_KEY,
-          baseUrl:
-            this.config.llm.zai?.baseUrl ||
-            process.env.ZAI_BASE_URL,
+          baseUrl: this.config.llm.zai?.baseUrl || process.env.ZAI_BASE_URL,
           model:
             this.config.llm.zai?.model ||
             this.config.llm.model ||

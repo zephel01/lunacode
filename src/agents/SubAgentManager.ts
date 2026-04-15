@@ -1,6 +1,10 @@
 import { AgentLoop } from "./AgentLoop.js";
 import { ILLMProvider } from "../providers/LLMProvider.js";
-import { SubAgentConfig, SubAgentResult, SubAgentRole } from "../types/index.js";
+import {
+  SubAgentConfig,
+  SubAgentResult,
+  SubAgentRole,
+} from "../types/index.js";
 
 // Role-based tool permissions
 const ROLE_TOOL_PERMISSIONS: Record<SubAgentRole, { allowed: string[] }> = {
@@ -8,7 +12,15 @@ const ROLE_TOOL_PERMISSIONS: Record<SubAgentRole, { allowed: string[] }> = {
     allowed: ["read_file", "glob", "grep", "git"],
   },
   worker: {
-    allowed: ["read_file", "write_file", "edit_file", "glob", "grep", "bash", "git"],
+    allowed: [
+      "read_file",
+      "write_file",
+      "edit_file",
+      "glob",
+      "grep",
+      "bash",
+      "git",
+    ],
   },
   reviewer: {
     allowed: ["read_file", "glob", "grep", "bash", "git"],
@@ -20,7 +32,11 @@ export class SubAgentManager {
   private basePath: string;
   private maxConcurrent: number;
 
-  constructor(llmProvider: ILLMProvider, basePath: string, maxConcurrent?: number) {
+  constructor(
+    llmProvider: ILLMProvider,
+    basePath: string,
+    maxConcurrent?: number,
+  ) {
     this.llmProvider = llmProvider;
     this.basePath = basePath;
     this.maxConcurrent = maxConcurrent ?? 3;
@@ -52,7 +68,7 @@ export class SubAgentManager {
 
       const result = await this.executeWithTimeout(
         agent.processUserInput(fullTask),
-        timeout
+        timeout,
       );
 
       return {
@@ -67,7 +83,8 @@ export class SubAgentManager {
         durationMs: Date.now() - startTime,
       };
     } catch (error) {
-      const isTimeout = error instanceof Error && error.message === "Sub-agent timeout";
+      const isTimeout =
+        error instanceof Error && error.message === "Sub-agent timeout";
       return {
         id,
         role: config.role,
@@ -90,7 +107,7 @@ export class SubAgentManager {
 
     for (const batch of batches) {
       const batchResults = await Promise.allSettled(
-        batch.map(config => this.spawn(config))
+        batch.map((config) => this.spawn(config)),
       );
 
       for (const result of batchResults) {
@@ -138,18 +155,21 @@ Focus on finding issues and providing feedback.`;
     return ROLE_TOOL_PERMISSIONS[role].allowed;
   }
 
-  private async executeWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  private async executeWithTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+  ): Promise<T> {
     return Promise.race([
       promise,
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Sub-agent timeout")), timeoutMs)
+        setTimeout(() => reject(new Error("Sub-agent timeout")), timeoutMs),
       ),
     ]);
   }
 
   private chunk<T>(arr: T[], size: number): T[][] {
     return Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
-      arr.slice(i * size, i * size + size)
+      arr.slice(i * size, i * size + size),
     );
   }
 }
