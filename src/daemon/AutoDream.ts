@@ -546,12 +546,18 @@ export class AutoDream {
       try {
         const result = JSON.parse(response);
 
-        return (result.insights || []).map((insight: { content: string; confidence?: number; category?: string }) => ({
-          content: insight.content,
-          confidence: insight.confidence || 0.5,
-          sourceLines: [],
-          category: insight.category || "fact",
-        }));
+        return (result.insights || []).map(
+          (insight: {
+            content: string;
+            confidence?: number;
+            category?: string;
+          }) => ({
+            content: insight.content,
+            confidence: insight.confidence || 0.5,
+            sourceLines: [],
+            category: insight.category || "fact",
+          }),
+        );
       } catch {
         // JSONパース失敗時は空を返す
         return [];

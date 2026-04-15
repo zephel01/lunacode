@@ -269,7 +269,8 @@ export class DiffGenerator {
     // oldSet / newSet は将来の最適化用に予約（現在は未使用）
     const _oldSet = new Set(oldLines);
     const _newSet = new Set(newLines);
-    void _oldSet; void _newSet;
+    void _oldSet;
+    void _newSet;
 
     // Track which lines from oldLines appear in newLines
     let oldIdx = 0;

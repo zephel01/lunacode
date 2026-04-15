@@ -76,7 +76,10 @@ export class LongTermMemory {
   private vectorStore: VectorStore;
   private embeddingProvider?: IEmbeddingProvider;
   private readonly config: Required<
-    Omit<LongTermMemoryConfig, "embeddingProvider" | "ollamaBaseUrl" | "openAIApiKey">
+    Omit<
+      LongTermMemoryConfig,
+      "embeddingProvider" | "ollamaBaseUrl" | "openAIApiKey"
+    >
   > & { ollamaBaseUrl?: string; openAIApiKey?: string };
   private initialized: boolean = false;
 
@@ -260,7 +263,11 @@ export class LongTermMemory {
     const queryEmbedding = await this.generateEmbeddingSafe(query);
 
     // ベクトル検索
-    const vectorResults = this.vectorStore.search(queryEmbedding, k * 2, filter);
+    const vectorResults = this.vectorStore.search(
+      queryEmbedding,
+      k * 2,
+      filter,
+    );
 
     // キーワード検索と合算（ハイブリッド検索）
     const keywordResults = this.vectorStore.searchByKeyword(query, k);
@@ -290,10 +297,7 @@ export class LongTermMemory {
       };
     }
 
-    const contextLines: string[] = [
-      "## 関連する過去の記憶",
-      "",
-    ];
+    const contextLines: string[] = ["## 関連する過去の記憶", ""];
 
     let usedChars = 100;
     const maxChars = maxTokens * 4; // 1 token ≈ 4 chars
@@ -347,11 +351,17 @@ export class LongTermMemory {
    */
   async cleanup(olderThanDays: number = 90): Promise<number> {
     const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
-    const allEntries = this.vectorStore.getRecent(undefined, Infinity as number);
+    const allEntries = this.vectorStore.getRecent(
+      undefined,
+      Infinity as number,
+    );
     let deleted = 0;
 
     for (const entry of allEntries) {
-      if (entry.metadata.timestamp < cutoff && (entry.metadata.importance ?? 0.5) < 0.8) {
+      if (
+        entry.metadata.timestamp < cutoff &&
+        (entry.metadata.importance ?? 0.5) < 0.8
+      ) {
         await this.vectorStore.delete(entry.id);
         deleted++;
       }
@@ -419,7 +429,10 @@ export class LongTermMemory {
     keywordResults: VectorSearchResult[],
     topK: number,
   ): VectorSearchResult[] {
-    const scoreMap = new Map<string, { result: VectorSearchResult; score: number }>();
+    const scoreMap = new Map<
+      string,
+      { result: VectorSearchResult; score: number }
+    >();
     const K = 60; // RRF 定数
 
     // ベクトル検索のスコアリング

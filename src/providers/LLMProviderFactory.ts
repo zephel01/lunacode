@@ -35,7 +35,9 @@ export class LLMProviderFactory {
           type: "zai",
         });
       default:
-        throw new Error(`Unknown provider type: ${(config as { type: string }).type}`);
+        throw new Error(
+          `Unknown provider type: ${(config as { type: string }).type}`,
+        );
     }
   }
 

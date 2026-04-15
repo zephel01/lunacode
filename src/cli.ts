@@ -173,7 +173,9 @@ async function fetchOllamaModels(
   try {
     const response = await fetch(`${baseUrl}/api/tags`);
     if (!response.ok) return [];
-    const data = (await response.json()) as { models?: Array<{ name: string; size?: number; modified_at?: string }> };
+    const data = (await response.json()) as {
+      models?: Array<{ name: string; size?: number; modified_at?: string }>;
+    };
     return (data.models || []).map((m) => ({
       name: m.name,
       size: m.size ? `${(m.size / 1024 / 1024 / 1024).toFixed(1)}GB` : "?",
@@ -278,7 +280,12 @@ async function handleInitCommand(
   console.log(`\n✅ Provider: ${provider}\n`);
 
   // プロバイダーごとのデフォルト設定を生成
-  const config: Record<string, unknown> = {
+  const config: {
+    llm: Record<string, unknown>;
+    agent: Record<string, unknown>;
+    memory: Record<string, unknown>;
+    daemon: Record<string, unknown>;
+  } = {
     llm: {
       provider,
       temperature: 0.7,
@@ -450,7 +457,9 @@ async function handleInitCommand(
 
   console.log(`\n✅ 設定を保存しました: ${configPath}`);
   console.log(`   Provider: ${provider}`);
-  console.log(`   Model: ${config.llm[provider]?.model || config.llm.model}`);
+  console.log(
+    `   Model: ${(config.llm[provider] as Record<string, unknown>)?.model || config.llm.model}`,
+  );
   console.log("");
   console.log('📝 "lunacode test-provider" で接続テストできます');
 }
@@ -493,17 +502,20 @@ async function handleConfigCommand(
       const configPath = path.join(kairosPath, "config.json");
       let config: Record<string, unknown>;
       try {
-        config = JSON.parse(await fs.readFile(configPath, "utf-8")) as Record<string, unknown>;
+        config = JSON.parse(await fs.readFile(configPath, "utf-8")) as Record<
+          string,
+          unknown
+        >;
       } catch {
         config = {};
       }
       const keys = key.split(".");
-      let current = config;
+      let current: Record<string, unknown> = config;
       for (let i = 0; i < keys.length - 1; i++) {
         if (!current[keys[i]] || typeof current[keys[i]] !== "object") {
           current[keys[i]] = {};
         }
-        current = current[keys[i]];
+        current = current[keys[i]] as Record<string, unknown>;
       }
       // 値の型推定
       const lastKey = keys[keys.length - 1];
@@ -948,9 +960,9 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
       currentState.lastInteraction = stateData.lastInteraction;
     } catch {
       // 新しいペットを作成
-      const petType = args.includes("--type")
-        ? args[args.indexOf("--type") + 1]
-        : PetType.CAT;
+      const petType = (
+        args.includes("--type") ? args[args.indexOf("--type") + 1] : PetType.CAT
+      ) as (typeof PetType)[keyof typeof PetType];
       const petName = args.includes("--name")
         ? args[args.indexOf("--name") + 1]
         : generateDefaultPetName(petType);
@@ -1062,14 +1074,16 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
       }
 
       case "create": {
-        let newPetType;
+        let newPetType: (typeof PetType)[keyof typeof PetType];
         if (args.includes("--type")) {
           const typeIndex = args.indexOf("--type") + 1;
           const typeString = args[typeIndex];
-          newPetType =
-            (PetType as Record<string, string>)[typeString.toUpperCase()] || PetType.CAT;
+          newPetType = ((PetType as Record<string, string>)[
+            typeString.toUpperCase()
+          ] || PetType.CAT) as (typeof PetType)[keyof typeof PetType];
         } else {
-          newPetType = await getRandomPetType();
+          newPetType =
+            (await getRandomPetType()) as (typeof PetType)[keyof typeof PetType];
         }
 
         const newPetName = args.includes("--name")
@@ -1113,7 +1127,20 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
   }
 }
 
-async function saveBuddyState(buddy: { getState(): { name: string; type: string; emotion: string; energy: number; hunger: number; happiness: number; lastInteraction: number } }, statePath: string): Promise<void> {
+async function saveBuddyState(
+  buddy: {
+    getState(): {
+      name: string;
+      type: string;
+      emotion: string;
+      energy: number;
+      hunger: number;
+      happiness: number;
+      lastInteraction: number;
+    };
+  },
+  statePath: string,
+): Promise<void> {
   const state = buddy.getState();
   const stateData = {
     name: state.name,

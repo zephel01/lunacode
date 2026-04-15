@@ -4,6 +4,7 @@ import {
   ChatCompletionResponse,
   OllamaConfig,
   ToolCall,
+  ChatMessage,
   GenerateResponseOptions,
   defaultGenerateResponse,
 } from "./LLMProvider.js";
@@ -175,7 +176,15 @@ export class OllamaProvider implements ILLMProvider {
                 // ネイティブツールモードでの tool_calls
                 if (this.useNativeTools && json.message?.tool_calls) {
                   streamToolCalls = json.message.tool_calls.map(
-                    (tc: { function: { name: string; arguments: Record<string, unknown> } }, i: number) => ({
+                    (
+                      tc: {
+                        function: {
+                          name: string;
+                          arguments: Record<string, unknown>;
+                        };
+                      },
+                      i: number,
+                    ) => ({
                       id: `tool_${i}_${Date.now()}`,
                       type: "function" as const,
                       function: {
@@ -498,7 +507,7 @@ export class OllamaProvider implements ILLMProvider {
    * メッセージを Ollama API 形式に変換
    * tool ロールのメッセージを適切に変換
    */
-  private convertMessages(messages: Record<string, unknown>[]): Record<string, unknown>[] {
+  private convertMessages(messages: ChatMessage[]): Record<string, unknown>[] {
     return messages.map((msg) => {
       const converted: Record<string, unknown> = {
         role: msg.role,
@@ -678,13 +687,24 @@ export class OllamaProvider implements ILLMProvider {
    * パラメータスキーマをプロンプト用の簡潔な形式に変換
    * ネストが深い場合は要約し、LLM が理解しやすい記述にする
    */
-  private formatParametersForPrompt(schema: Record<string, unknown>): string {
+  private formatParametersForPrompt(
+    schema: Record<string, unknown> | undefined,
+  ): string {
     if (!schema || !schema.properties) return "{}";
 
     const parts: string[] = [];
-    type SchemaProp = { type?: string; enum?: unknown[]; items?: { type?: string; properties?: Record<string, SchemaProp> } };
-    for (const [key, prop] of Object.entries(schema.properties) as [string, SchemaProp][]) {
-      const required = (schema.required as string[] | undefined)?.includes(key) ? " (required)" : "";
+    type SchemaProp = {
+      type?: string;
+      enum?: unknown[];
+      items?: { type?: string; properties?: Record<string, SchemaProp> };
+    };
+    for (const [key, prop] of Object.entries(schema.properties) as [
+      string,
+      SchemaProp,
+    ][]) {
+      const required = (schema.required as string[] | undefined)?.includes(key)
+        ? " (required)"
+        : "";
 
       if (prop.type === "array" && prop.items?.type === "object") {
         // ネストされた配列オブジェクトは簡潔に記述
@@ -779,29 +799,48 @@ export class OllamaProvider implements ILLMProvider {
   ): { name: string; arguments: Record<string, unknown> } | null {
     if (!data || typeof data !== "object") return null;
 
+    type FnShape = {
+      name?: string;
+      arguments?: Record<string, unknown>;
+      parameters?: Record<string, unknown>;
+    };
+
     // 標準形式: { name, arguments }
     if (data.name && data.arguments) {
-      return { name: data.name, arguments: data.arguments };
+      return {
+        name: data.name as string,
+        arguments: data.arguments as Record<string, unknown>,
+      };
     }
     // 代替形式: { name, parameters } (llama3.1 リトライ時など)
     if (data.name && data.parameters) {
-      return { name: data.name, arguments: data.parameters };
+      return {
+        name: data.name as string,
+        arguments: data.parameters as Record<string, unknown>,
+      };
     }
     // OpenAI 形式: { function: { name, arguments } }
-    if (data.function?.name && data.function?.arguments) {
-      return { name: data.function.name, arguments: data.function.arguments };
+    const fn = data.function as FnShape | undefined;
+    if (fn?.name && fn?.arguments) {
+      return { name: fn.name, arguments: fn.arguments };
     }
     // OpenAI 代替形式: { function: { name, parameters } }
-    if (data.function?.name && data.function?.parameters) {
-      return { name: data.function.name, arguments: data.function.parameters };
+    if (fn?.name && fn?.parameters) {
+      return { name: fn.name, arguments: fn.parameters };
     }
     // 代替形式: { tool: "name", parameters: {...} }
     if (data.tool && data.parameters) {
-      return { name: data.tool, arguments: data.parameters };
+      return {
+        name: data.tool as string,
+        arguments: data.parameters as Record<string, unknown>,
+      };
     }
     // 代替形式: { action: "name", params: {...} }
     if (data.action && data.params) {
-      return { name: data.action, arguments: data.params };
+      return {
+        name: data.action as string,
+        arguments: data.params as Record<string, unknown>,
+      };
     }
     return null;
   }

@@ -29,7 +29,7 @@ export interface UIState {
   streaming: boolean;
   agentStatus: string;
   daemonStatus: string;
-  memoryStats: Record<string, unknown>;
+  memoryStats: Record<string, unknown> | null;
 }
 
 /**
@@ -206,7 +206,7 @@ function DaemonStatus({ status }: { status: string }) {
 /**
  * メモリ統計
  */
-function MemoryStats({ stats }: { stats: Record<string, unknown> }) {
+function MemoryStats({ stats }: { stats: Record<string, unknown> | null }) {
   if (!stats) {
     return <Text color="dim">Memory stats not available</Text>;
   }
@@ -214,9 +214,9 @@ function MemoryStats({ stats }: { stats: Record<string, unknown> }) {
   return (
     <Box borderStyle="single" borderColor="magenta" padding={1}>
       <Text bold color="magenta">Memory Statistics</Text>
-      <Text>Lines: {stats.memoryLines || 0}</Text>
-      <Text>Topics: {stats.topicCount || 0}</Text>
-      <Text>Size: {((stats.totalSizeBytes || 0) / 1024).toFixed(2)} KB</Text>
+      <Text>Lines: {(stats.memoryLines as number) || 0}</Text>
+      <Text>Topics: {(stats.topicCount as number) || 0}</Text>
+      <Text>Size: {(((stats.totalSizeBytes as number) || 0) / 1024).toFixed(2)} KB</Text>
     </Box>
   );
 }
@@ -433,7 +433,7 @@ export class UIManager {
   /**
    * メモリ統計を設定
    */
-  setMemoryStats(stats: Record<string, unknown>): void {
+  setMemoryStats(stats: Record<string, unknown> | null): void {
     this.updateState({ memoryStats: stats });
   }
 

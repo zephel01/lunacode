@@ -1,4 +1,8 @@
 import OpenAI from "openai";
+import type {
+  ChatCompletionMessageParam,
+  ChatCompletionTool,
+} from "openai/resources/chat/completions";
 import {
   ILLMProvider,
   ChatCompletionRequest,
@@ -33,10 +37,10 @@ export class LMStudioProvider implements ILLMProvider {
   ): Promise<ChatCompletionResponse> {
     const response = await this.client.chat.completions.create({
       model: request.model || this.config.model || "local-model",
-      messages: request.messages as unknown[],
+      messages: request.messages as unknown as ChatCompletionMessageParam[],
       temperature: request.temperature || this.config.temperature || 0.7,
       max_tokens: request.max_tokens || this.config.maxTokens || 1000,
-      tools: request.tools,
+      tools: request.tools as unknown as ChatCompletionTool[] | undefined,
       stream: false,
     });
 

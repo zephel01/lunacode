@@ -140,7 +140,11 @@ export class AgentLoop {
     // Phase 5: チェックポイント管理の初期化（サブエージェントではスキップ）
     if (!this.isSubAgent) {
       try {
-        const checkpointConfig = this.configManager.get("checkpoint");
+        const checkpointConfig = this.configManager.get("checkpoint") as
+          | ({ enabled?: boolean } & Partial<
+              import("../agents/CheckpointManager.js").CheckpointManagerConfig
+            >)
+          | undefined;
         if (checkpointConfig?.enabled !== false) {
           this.checkpointManager = new CheckpointManager(
             this.basePath,
@@ -157,11 +161,21 @@ export class AgentLoop {
     // Phase 6: 承認フローの初期化（サブエージェントではスキップ）
     if (!this.isSubAgent) {
       try {
-        const approvalConfig = this.configManager.get("approval");
+        const approvalConfig = this.configManager.get("approval") as
+          | {
+              mode?: string;
+              showDiff?: boolean;
+              autoApproveReadOnly?: boolean;
+              timeoutSeconds?: number;
+            }
+          | undefined;
         if (approvalConfig?.mode && approvalConfig.mode !== "auto") {
           this.approvalManager = new ApprovalManager(
             {
-              mode: approvalConfig.mode || "selective",
+              mode: (approvalConfig.mode || "selective") as
+                | "auto"
+                | "selective"
+                | "confirm",
               showDiff: approvalConfig.showDiff !== false,
               autoApproveReadOnly: approvalConfig.autoApproveReadOnly !== false,
               timeoutSeconds: approvalConfig.timeoutSeconds || 0,
@@ -187,10 +201,14 @@ export class AgentLoop {
     // Phase 9: MCP サーバー接続（サブエージェントではスキップ）
     if (!this.isSubAgent) {
       try {
-        const mcpConfig = this.configManager.get("mcp");
-        if (mcpConfig?.servers?.length > 0) {
+        const mcpConfig = this.configManager.get("mcp") as
+          | { servers?: unknown[] }
+          | undefined;
+        if (mcpConfig?.servers && mcpConfig.servers.length > 0) {
           this.mcpManager = new MCPClientManager(this.toolRegistry);
-          await this.mcpManager.connectAll(mcpConfig.servers);
+          await this.mcpManager.connectAll(
+            mcpConfig.servers as import("../mcp/MCPConnection.js").MCPServerConfig[],
+          );
         }
       } catch (error) {
         console.warn("⚠️ Failed to initialize MCP:", error);
@@ -563,8 +581,11 @@ When you have enough information or the task is complete, provide a clear, conci
                     const typedArgs = parsedArgs as Record<string, unknown>;
                     const argSummary =
                       toolCall.function.name === "bash"
-                        ? (typedArgs.command as string | undefined)?.substring(0, 50) ?? ""
-                        : (typedArgs.path as string | undefined) ?? "";
+                        ? ((typedArgs.command as string | undefined)?.substring(
+                            0,
+                            50,
+                          ) ?? "")
+                        : ((typedArgs.path as string | undefined) ?? "");
                     await this.checkpointManager.create(
                       `Before: ${toolCall.function.name}(${argSummary})`,
                     );
@@ -577,7 +598,9 @@ When you have enough information or the task is complete, provide a clear, conci
               // Phase 6: 承認チェック
               if (this.approvalManager) {
                 const tool = this.toolRegistry.get(toolCall.function.name);
-                const riskLevel = (tool as { riskLevel?: string } | undefined)?.riskLevel ?? "MEDIUM";
+                const riskLevel =
+                  (tool as { riskLevel?: string } | undefined)?.riskLevel ??
+                  "MEDIUM";
                 const { approved, args: finalArgs } =
                   await this.approvalManager.checkApproval(
                     toolCall.function.name,
@@ -662,7 +685,9 @@ When you have enough information or the task is complete, provide a clear, conci
                       this.sessionId,
                     );
                   } else if (
-                    ["write_file", "edit_file"].includes(toolCall.function.name) &&
+                    ["write_file", "edit_file"].includes(
+                      toolCall.function.name,
+                    ) &&
                     toolResult.success
                   ) {
                     // ファイル書き込み成功を記録
@@ -671,7 +696,9 @@ When you have enough information or the task is complete, provide a clear, conci
                     if (filePath) {
                       await this.longTermMemory.storeCode(
                         `ファイル操作: ${toolCall.function.name}`,
-                        ((ltmArgs.content as string | undefined) ?? "").substring(0, 300),
+                        (
+                          (ltmArgs.content as string | undefined) ?? ""
+                        ).substring(0, 300),
                         filePath,
                         this.sessionId,
                       );

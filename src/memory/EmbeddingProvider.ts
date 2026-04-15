@@ -211,7 +211,10 @@ export class TFIDFEmbeddingProvider implements IEmbeddingProvider {
   private updateVocabulary(tokens: string[]): void {
     const uniqueTokens = new Set(tokens);
     for (const token of uniqueTokens) {
-      if (!this.vocabulary.has(token) && this.vocabulary.size < this.VOCAB_SIZE) {
+      if (
+        !this.vocabulary.has(token) &&
+        this.vocabulary.size < this.VOCAB_SIZE
+      ) {
         this.vocabulary.set(token, this.vocabulary.size);
       }
       this.documentFrequency.set(
@@ -287,10 +290,13 @@ export async function createAutoEmbeddingProvider(
         if (hasEmbedModel) {
           const model =
             data.models?.find(
-              (m) =>
-                m.name.includes("nomic-embed") || m.name.includes("embed"),
+              (m) => m.name.includes("nomic-embed") || m.name.includes("embed"),
             )?.name ?? "nomic-embed-text";
-          return new OllamaEmbeddingProvider({ type: "ollama", baseUrl: url, model });
+          return new OllamaEmbeddingProvider({
+            type: "ollama",
+            baseUrl: url,
+            model,
+          });
         }
       }
     } catch {

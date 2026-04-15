@@ -375,6 +375,7 @@ export class MultiAgentCoordinator {
     workerId: string,
     event: WorkerEventData,
   ): Promise<void> {
+    if (!event.taskId) return;
     const task = this.tasks.get(event.taskId);
     if (!task) return;
 
@@ -394,6 +395,7 @@ export class MultiAgentCoordinator {
     workerId: string,
     event: WorkerEventData,
   ): Promise<void> {
+    if (!event.taskId) return;
     const task = this.tasks.get(event.taskId);
     if (!task) return;
 
@@ -487,7 +489,8 @@ export class WorkerAgent {
   private llmProvider: ILLMProvider;
   private memorySystem: MemorySystem;
   private state: WorkerState;
-  private eventListeners: Map<string, ((data: WorkerEventData) => void)[]> = new Map();
+  private eventListeners: Map<string, ((data: WorkerEventData) => void)[]> =
+    new Map();
   private currentTask?: AgentTask;
 
   constructor(

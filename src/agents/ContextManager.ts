@@ -21,7 +21,9 @@ export class ContextManager {
 
   // Fit messages within context window
   fitMessages(messages: AgentMessage[]): AgentMessage[] {
-    const totalTokens = TokenCounter.estimateMessages(messages as { role: string; content?: string | null }[]);
+    const totalTokens = TokenCounter.estimateMessages(
+      messages as { role: string; content?: string | null }[],
+    );
 
     if (totalTokens <= this.availableTokens) {
       return messages;
@@ -31,7 +33,13 @@ export class ContextManager {
     const systemMessages = messages.filter((m) => m.role === "system");
     const otherMessages = messages.filter((m) => m.role !== "system");
 
-    const systemTokens = TokenCounter.estimateMessages(systemMessages as { role: string; content?: string | null; tool_calls?: unknown[] }[]);
+    const systemTokens = TokenCounter.estimateMessages(
+      systemMessages as {
+        role: string;
+        content?: string | null;
+        tool_calls?: unknown[];
+      }[],
+    );
     let budget = this.availableTokens - systemTokens;
 
     if (budget <= 0) {
@@ -43,7 +51,11 @@ export class ContextManager {
     // Keep messages from newest to oldest
     const kept: AgentMessage[] = [];
     for (let i = otherMessages.length - 1; i >= 0; i--) {
-      const tokens = TokenCounter.estimateMessages([otherMessages[i]] as { role: string; content?: string | null; tool_calls?: unknown[] }[]);
+      const tokens = TokenCounter.estimateMessages([otherMessages[i]] as {
+        role: string;
+        content?: string | null;
+        tool_calls?: unknown[];
+      }[]);
       if (budget - tokens < 0) break;
       budget -= tokens;
       kept.unshift(otherMessages[i]);
@@ -66,7 +78,9 @@ export class ContextManager {
     total: number;
     percentage: number;
   } {
-    const used = TokenCounter.estimateMessages(messages as { role: string; content?: string | null }[]);
+    const used = TokenCounter.estimateMessages(
+      messages as { role: string; content?: string | null }[],
+    );
     return {
       used,
       available: this.availableTokens,

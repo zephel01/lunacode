@@ -138,7 +138,10 @@ export class VectorStore {
     this.isDirty = true;
   }
 
-  async update(id: string, updates: Partial<VectorMemoryEntry>): Promise<boolean> {
+  async update(
+    id: string,
+    updates: Partial<VectorMemoryEntry>,
+  ): Promise<boolean> {
     const existing = this.entries.get(id);
     if (!existing) return false;
 
@@ -215,10 +218,7 @@ export class VectorStore {
   /**
    * タイプ別の最近のエントリを返す
    */
-  getRecent(
-    type?: MemoryEntryType,
-    limit: number = 10,
-  ): VectorMemoryEntry[] {
+  getRecent(type?: MemoryEntryType, limit: number = 10): VectorMemoryEntry[] {
     let entries = Array.from(this.entries.values());
     if (type) {
       entries = entries.filter((e) => e.metadata.type === type);
@@ -276,11 +276,9 @@ export class VectorStore {
     const candidates = Array.from(this.entries.values()).sort((a, b) => {
       // 重要度 * 新しさ でスコアリング（低いものを先に削除）
       const scoreA =
-        (a.metadata.importance ?? 0.5) *
-        (a.metadata.timestamp / Date.now());
+        (a.metadata.importance ?? 0.5) * (a.metadata.timestamp / Date.now());
       const scoreB =
-        (b.metadata.importance ?? 0.5) *
-        (b.metadata.timestamp / Date.now());
+        (b.metadata.importance ?? 0.5) * (b.metadata.timestamp / Date.now());
       return scoreA - scoreB;
     });
 
@@ -296,7 +294,8 @@ export class VectorStore {
     filter: Partial<VectorMemoryEntry["metadata"]>,
   ): boolean {
     if (filter.type && entry.metadata.type !== filter.type) return false;
-    if (filter.sessionId && entry.metadata.sessionId !== filter.sessionId) return false;
+    if (filter.sessionId && entry.metadata.sessionId !== filter.sessionId)
+      return false;
     if (filter.tags && filter.tags.length > 0) {
       const entryTags = entry.metadata.tags ?? [];
       if (!filter.tags.some((t) => entryTags.includes(t))) return false;

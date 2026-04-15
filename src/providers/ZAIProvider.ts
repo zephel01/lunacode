@@ -1,4 +1,8 @@
 import OpenAI from "openai";
+import type {
+  ChatCompletionMessageParam,
+  ChatCompletionTool,
+} from "openai/resources/chat/completions";
 import {
   ILLMProvider,
   ChatCompletionRequest,
@@ -86,10 +90,10 @@ export class ZAIProvider implements ILLMProvider {
   ): Promise<ChatCompletionResponse> {
     const response = await this.client.chat.completions.create({
       model: request.model || this.config.model,
-      messages: request.messages as unknown[],
+      messages: request.messages as unknown as ChatCompletionMessageParam[],
       temperature: request.temperature ?? this.config.temperature,
       max_tokens: request.max_tokens ?? this.config.maxTokens,
-      tools: request.tools,
+      tools: request.tools as unknown as ChatCompletionTool[] | undefined,
       stream: false,
     });
 

@@ -24,13 +24,25 @@ export interface ToolCall {
   };
 }
 
+// ツール定義
+export interface ToolFunction {
+  name: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
+}
+
+export interface ToolDefinition {
+  type: string;
+  function: ToolFunction;
+}
+
 // チャットコンプリションのリクエスト
 export interface ChatCompletionRequest {
   model: string;
   messages: ChatMessage[];
   temperature?: number;
   max_tokens?: number;
-  tools?: Record<string, unknown>[];
+  tools?: ToolDefinition[];
   stream?: boolean;
 }
 
@@ -119,7 +131,9 @@ export interface ILLMProvider {
   testConnection(): Promise<boolean>;
 
   // ストリーミング対応チャットコンプリション
-  chatCompletionStream?(request: ChatCompletionRequest): AsyncGenerator<unknown>;
+  chatCompletionStream?(
+    request: ChatCompletionRequest,
+  ): AsyncGenerator<import("../types/index.js").StreamChunk>;
 
   // ストリーミング対応かを判定
   supportsStreaming?(): boolean;
