@@ -1,5 +1,6 @@
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { MemorySystem } from "../memory/MemorySystem.js";
+import { LongTermMemory } from "../memory/LongTermMemory.js";
 import {
   AgentMessage,
   AgentState,
@@ -55,6 +56,10 @@ export class AgentLoop {
   private approvalManager?: ApprovalManager;
   // Phase 9: MCP
   private mcpManager?: MCPClientManager;
+  // 長期メモリ（ベクトル検索）
+  private longTermMemory?: LongTermMemory;
+  // 現在のセッション ID（長期メモリのタグ付けに使用）
+  private sessionId: string = `session_${Date.now()}`;
 
   // サブエージェントモード: delegate_task を登録せず再帰を防止
   private isSubAgent: boolean = false;
@@ -192,6 +197,30 @@ export class AgentLoop {
       }
     }
 
+    // 長期メモリ（ベクトル検索）の初期化
+    try {
+      const ollamaBaseUrl =
+        this.llmProvider.getType() === "ollama"
+          ? "http://localhost:11434"
+          : undefined;
+      const openAIApiKey = process.env.OPENAI_API_KEY;
+      this.longTermMemory = new LongTermMemory({
+        basePath: this.basePath,
+        ollamaBaseUrl,
+        openAIApiKey,
+        defaultTopK: 5,
+        minSimilarity: 0.25,
+        autoSaveIntervalMs: 60_000,
+      });
+      await this.longTermMemory.initialize();
+      const stats = this.longTermMemory.getStats();
+      console.log(
+        `🧠 Long-term memory enabled | provider: ${this.longTermMemory.getEmbeddingProviderName()} | entries: ${stats.totalEntries}`,
+      );
+    } catch (error) {
+      console.warn("⚠️ Failed to initialize long-term memory:", error);
+    }
+
     // サブエージェントの場合、許可されたツールのみにフィルタリング
     if (this.isSubAgent && this.allowedTools) {
       this.toolRegistry.filterByAllowed(this.allowedTools);
@@ -246,13 +275,24 @@ export class AgentLoop {
     this.maxIterations = agentConfig.maxIterations;
     this.state.maxIterations = agentConfig.maxIterations;
 
-    // メモリから関連情報を最適化検索で取得（Phase 1）
+    // メモリから関連情報を最適化検索で取得（Phase 1: ファイルベース）
     const searchResults = await this.memorySystem.searchMemory(userInput, 5);
     const relevantContext = searchResults.map((r) => r.content).join("\n");
 
     // メインメモリと最近のログも取得
     const memoryContent = await this.memorySystem.readMemory();
     const recentLogs = await this.memorySystem.getRecentLogs(7);
+
+    // 長期メモリからセマンティック検索でコンテキストを構築
+    let longTermContext = "";
+    if (this.longTermMemory) {
+      try {
+        const memCtx = await this.longTermMemory.buildContext(userInput, 1500);
+        longTermContext = memCtx.contextText;
+      } catch (error) {
+        // 長期メモリ検索の失敗はエージェントの動作をブロックしない
+      }
+    }
 
     // スキル自動検出: ユーザー入力からマッチするスキルを見つける
     const skillMatches = this.skillLoader.findRelevantSkills(userInput);
@@ -312,6 +352,7 @@ ${relevantContext}
 
 Recent activity logs:
 ${recentLogs}
+${longTermContext ? `\n${longTermContext}` : ""}
 
 Follow the ReAct pattern:
 1. Thought: Think about what you need to do
@@ -608,6 +649,37 @@ When you have enough information or the task is complete, provide a clear, conci
                 iteration: this.state.iteration,
               });
 
+              // 長期メモリへの保存（重要なイベントのみ）
+              if (this.longTermMemory) {
+                try {
+                  if (!toolResult.success && toolResult.error) {
+                    // エラーは高重要度で保存
+                    await this.longTermMemory.storeError(
+                      toolResult.error,
+                      `ツール: ${toolCall.function.name}, 引数: ${JSON.stringify(parsedArgs).substring(0, 200)}`,
+                      undefined,
+                      this.sessionId,
+                    );
+                  } else if (
+                    ["write_file", "edit_file"].includes(toolCall.function.name) &&
+                    toolResult.success
+                  ) {
+                    // ファイル書き込み成功を記録
+                    const filePath = (parsedArgs as any).path as string;
+                    if (filePath) {
+                      await this.longTermMemory.storeCode(
+                        `ファイル操作: ${toolCall.function.name}`,
+                        (parsedArgs as any).content?.substring(0, 300) || "",
+                        filePath,
+                        this.sessionId,
+                      );
+                    }
+                  }
+                } catch {
+                  // 長期メモリ保存の失敗はエージェントをブロックしない
+                }
+              }
+
               // スケルトン検知: write_file / read_file の結果にプレースホルダーが残っている場合
               // AgentLoop 側で edit_file を使ったセクション埋めを誘導する
               {
@@ -842,7 +914,38 @@ Do NOT explain. Actually call the tool now.`;
       // ignore
     }
 
+    // 長期メモリ: セッションサマリーを保存してフラッシュ
+    if (this.longTermMemory) {
+      try {
+        // ユーザーメッセージと最後のアシスタント応答を要約して保存
+        const userMessages = this.messages
+          .filter((m) => m.role === "user")
+          .map((m) => m.content)
+          .slice(-3) // 最後の 3 件
+          .join(" / ");
+        const lastAssistant = this.messages
+          .filter((m) => m.role === "assistant")
+          .slice(-1)[0]?.content;
+
+        if (userMessages && lastAssistant) {
+          await this.longTermMemory.storeConversation(
+            `セッション ${this.sessionId}\nユーザー: ${userMessages.substring(0, 200)}\nエージェント: ${lastAssistant.substring(0, 300)}`,
+            this.sessionId,
+            0.5,
+          );
+        }
+        await this.longTermMemory.flush();
+        this.longTermMemory.destroy();
+      } catch (error) {
+        // ignore
+      }
+    }
+
     // Phase 7: セッション終了フック
     await this.hookManager.emit("session:end", {});
+  }
+
+  getLongTermMemory(): LongTermMemory | undefined {
+    return this.longTermMemory;
   }
 }

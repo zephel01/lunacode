@@ -447,3 +447,63 @@ export interface MCPResource {
   mimeType?: string;
   description?: string;
 }
+
+// ========================================
+// 長期メモリ + ベクトル検索（Memory強化）
+// ========================================
+
+/** メモリエントリのタイプ */
+export type MemoryEntryType =
+  | "task" // タスクの実行・結果
+  | "error" // エラー・解決パターン
+  | "code" // コードスニペット・変更
+  | "conversation" // 会話の要約
+  | "fact"; // プロジェクトに関する事実
+
+/** ベクトルストアのエントリ */
+export interface VectorMemoryEntry {
+  id: string;
+  content: string;
+  embedding: number[];
+  metadata: {
+    type: MemoryEntryType;
+    timestamp: number;
+    sessionId?: string;
+    tags?: string[];
+    importance?: number;
+    source?: string;
+  };
+}
+
+/** ベクトル検索結果 */
+export interface VectorSearchResult {
+  entry: VectorMemoryEntry;
+  similarity: number; // コサイン類似度 (0-1)
+}
+
+/** Embedding プロバイダーの設定 */
+export interface EmbeddingConfig {
+  type: "ollama" | "openai" | "tfidf";
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+  timeoutMs?: number;
+}
+
+/** 長期メモリの設定 */
+export interface LongTermMemoryConfig {
+  basePath: string;
+  maxEntries?: number;
+  minSimilarity?: number;
+  defaultTopK?: number;
+  autoSaveIntervalMs?: number;
+  ollamaBaseUrl?: string;
+  openAIApiKey?: string;
+}
+
+/** AgentLoop に注入するメモリコンテキスト */
+export interface MemoryContext {
+  contextText: string;
+  entries: VectorSearchResult[];
+  embeddingProvider: string;
+}
