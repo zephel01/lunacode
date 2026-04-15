@@ -7,6 +7,7 @@
     ReAct パターン | ストリーミング | サブエージェント | チェックポイント | Diff承認 | MCP | マルチ LLM
   </p>
   <p align="center">
+    <a href="https://github.com/zephel01/lunacode/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zephel01/lunacode/actions/workflows/ci.yml/badge.svg" /></a>
     <a href="https://github.com/zephel01/lunacode/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
     <a href="https://bun.sh"><img alt="Runtime: Bun" src="https://img.shields.io/badge/runtime-Bun-f9f1e1.svg" /></a>
     <a href="https://www.typescriptlang.org/"><img alt="Language: TypeScript" src="https://img.shields.io/badge/language-TypeScript-3178c6.svg" /></a>

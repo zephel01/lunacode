@@ -11,8 +11,10 @@
     "start": "bun run src/cli.ts",
     "test": "bun test",
     "build": "bun build --target node src/cli.ts --outfile dist/cli.js",
+    "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
     "test:watch": "bun test --watch",
     "clean": "rimraf dist",
     "docs:build": "echo 'Documentation files are already in docs/'"
