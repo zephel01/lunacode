@@ -292,7 +292,7 @@ export interface StreamChunk {
 export interface StreamCallbacks {
   onToken?: (token: string) => void;
   onToolCall?: (toolCall: ToolCall) => void;
-  onUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
+  onUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; durationMs?: number }) => void;
   onError?: (error: string) => void;
 }
 

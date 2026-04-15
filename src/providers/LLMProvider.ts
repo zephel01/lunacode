@@ -75,6 +75,8 @@ export interface OllamaConfig extends LLMProviderConfig {
   type: "ollama";
   baseUrl?: string;
   model?: string;
+  /** リクエストタイムアウト（ミリ秒）。大型モデルは長めに設定推奨。デフォルト: 300000 (5分) */
+  requestTimeout?: number;
 }
 
 // generateResponseのオプション

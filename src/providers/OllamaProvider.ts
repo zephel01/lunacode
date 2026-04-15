@@ -14,6 +14,8 @@ export class OllamaProvider implements ILLMProvider {
   private model: string;
   private config: OllamaConfig;
   private useNativeTools: boolean = true; // ネイティブ Tool Calling を試行するか
+  /** リクエストタイムアウト（ミリ秒）。デフォルト 5 分 */
+  private requestTimeout: number;
 
   constructor(config: OllamaConfig) {
     this.config = {
@@ -24,6 +26,23 @@ export class OllamaProvider implements ILLMProvider {
 
     this.baseUrl = this.config.baseUrl;
     this.model = this.config.model;
+    this.requestTimeout = config.requestTimeout ?? 300_000; // デフォルト 5 分
+  }
+
+  /**
+   * タイムアウト付き fetch ヘルパー
+   * AbortController で指定 ms 後に自動キャンセル
+   */
+  private fetchWithTimeout(
+    url: string,
+    options: RequestInit,
+    timeoutMs: number = this.requestTimeout,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, { ...options, signal: controller.signal }).finally(() =>
+      clearTimeout(timer),
+    );
   }
 
   async chatCompletion(
@@ -77,7 +96,7 @@ export class OllamaProvider implements ILLMProvider {
         `[DEBUG] Ollama streaming request: model=${body.model}, stream=true, useNativeTools=${this.useNativeTools}`,
       );
 
-      const response = await fetch(`${this.baseUrl}/api/chat`, {
+      const response = await this.fetchWithTimeout(`${this.baseUrl}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -107,6 +126,7 @@ export class OllamaProvider implements ILLMProvider {
       let fullContent = "";
       let promptTokens = 0;
       let completionTokens = 0;
+      let evalDurationMs = 0;
 
       try {
         while (true) {
@@ -136,6 +156,8 @@ export class OllamaProvider implements ILLMProvider {
               if (json.done === true) {
                 promptTokens = json.prompt_eval_count || 0;
                 completionTokens = json.eval_count || 0;
+                // eval_duration はナノ秒単位なのでミリ秒に変換
+                evalDurationMs = json.eval_duration ? Math.round(json.eval_duration / 1_000_000) : 0;
 
                 let streamToolCalls: Array<{
                   id: string;
@@ -203,6 +225,7 @@ export class OllamaProvider implements ILLMProvider {
                     prompt_tokens: promptTokens,
                     completion_tokens: completionTokens,
                     total_tokens: promptTokens + completionTokens,
+                    ...(evalDurationMs > 0 ? { durationMs: evalDurationMs } : {}),
                   },
                 };
               }
@@ -274,7 +297,7 @@ export class OllamaProvider implements ILLMProvider {
       `[DEBUG] Ollama request (native): tools=${(body.tools as unknown[])?.length || 0}, model=${body.model}`,
     );
 
-    const response = await fetch(`${this.baseUrl}/api/chat`, {
+    const response = await this.fetchWithTimeout(`${this.baseUrl}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -406,7 +429,7 @@ export class OllamaProvider implements ILLMProvider {
       `[DEBUG] Ollama request (text-extraction fallback): model=${body.model}`,
     );
 
-    const response = await fetch(`${this.baseUrl}/api/chat`, {
+    const response = await this.fetchWithTimeout(`${this.baseUrl}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -785,7 +808,11 @@ export class OllamaProvider implements ILLMProvider {
 
   async testConnection(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
+      const response = await this.fetchWithTimeout(
+        `${this.baseUrl}/api/tags`,
+        {},
+        10_000, // 接続確認は 10 秒で十分
+      );
       return response.ok;
     } catch (error) {
       console.error("Ollama connection test failed:", error);
@@ -795,7 +822,11 @@ export class OllamaProvider implements ILLMProvider {
 
   async listModels(): Promise<string[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
+      const response = await this.fetchWithTimeout(
+        `${this.baseUrl}/api/tags`,
+        {},
+        10_000,
+      );
       const data = (await response.json()) as {
         models: Array<{ name: string }>;
       };

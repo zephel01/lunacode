@@ -13,6 +13,108 @@ import * as readline from "readline";
 // デーモン関連のインポート（遅延読み込み）
 type DaemonModule = typeof import("./daemon/KAIROSDaemon.js");
 
+// ========================================
+// トークン速度トラッカー
+// ストリーミング中のトークン生成速度を計測し表示する
+// ========================================
+
+interface SpeedTracker {
+  callbacks: {
+    onToken: (token: string) => void;
+    onUsage: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
+  };
+  printSummary: () => void;
+}
+
+/**
+ * トークン生成速度を計測・表示するトラッカーを生成
+ *
+ * Ollama など eval_duration を返すプロバイダーはその値を優先使用する。
+ * それ以外のプロバイダーはトークン間のタイムスタンプ差分で推定する。
+ * いずれもツール実行時間は含まない。
+ *
+ * @param verbose - true の場合、ストリーミング中にリアルタイムで速度を表示
+ */
+function createSpeedTracker(verbose = false): SpeedTracker {
+  // プロバイダー提供の正確な計測値（Ollama の eval_duration など）
+  let providerTotalTokens = 0;
+  let providerTotalDurationMs = 0;
+
+  // フォールバック用タイムスタンプ計測
+  let totalTokens = 0;
+  let totalStreamingMs = 0;
+  let sessionStart = 0;
+  let lastTokenTime = 0;
+  let lastPrintTime = 0;
+  let sessionTokens = 0;
+
+  const callbacks = {
+    onToken: (_token: string) => {
+      const now = Date.now();
+      if (sessionStart === 0) {
+        sessionStart = now;
+        lastPrintTime = now;
+        sessionTokens = 0;
+      }
+      sessionTokens++;
+      totalTokens++;
+      lastTokenTime = now;
+
+      if (verbose && now - lastPrintTime >= 1000) {
+        const elapsed = (now - sessionStart) / 1000;
+        const speed = elapsed > 0 ? (sessionTokens / elapsed).toFixed(1) : "0";
+        process.stdout.write(`\r\x1b[K⚡ ${speed} tokens/sec (計 ${totalTokens} tokens)...`);
+        lastPrintTime = now;
+      }
+    },
+    onUsage: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; durationMs?: number }) => {
+      if (usage.durationMs && usage.durationMs > 0) {
+        // プロバイダーが正確な生成時間を提供（Ollama の eval_duration）
+        providerTotalTokens += usage.completion_tokens;
+        providerTotalDurationMs += usage.durationMs;
+      } else {
+        // フォールバック: タイムスタンプ差分で累積
+        if (sessionStart > 0 && lastTokenTime > 0) {
+          totalStreamingMs += lastTokenTime - sessionStart;
+        }
+        if (usage.completion_tokens > 0) {
+          totalTokens = usage.completion_tokens;
+        }
+      }
+      // 次のセッションに備えてリセット
+      sessionStart = 0;
+      sessionTokens = 0;
+    },
+  };
+
+  const printSummary = () => {
+    if (verbose) process.stdout.write("\r\x1b[K");
+
+    if (providerTotalDurationMs > 0 && providerTotalTokens > 0) {
+      // Ollama など正確な値が得られた場合
+      const elapsed = providerTotalDurationMs / 1000;
+      const speed = (providerTotalTokens / elapsed).toFixed(1);
+      console.log(`⚡ ${speed} tokens/sec | ${providerTotalTokens} tokens | ${elapsed.toFixed(1)}s`);
+    } else {
+      // フォールバック計測
+      let streamingMs = totalStreamingMs;
+      if (sessionStart > 0 && lastTokenTime > 0) {
+        streamingMs += lastTokenTime - sessionStart;
+      }
+      if (totalTokens === 0) return;
+      if (streamingMs > 0) {
+        const elapsed = streamingMs / 1000;
+        const speed = (totalTokens / elapsed).toFixed(1);
+        console.log(`⚡ ${speed} tokens/sec | ${totalTokens} tokens | ${elapsed.toFixed(1)}s`);
+      } else {
+        console.log(`⚡ ${totalTokens} tokens generated`);
+      }
+    }
+  };
+
+  return { callbacks, printSummary };
+}
+
 /**
  * プロバイダー名からプロバイダーを作成
  */
@@ -1162,9 +1264,12 @@ async function handleChatMode(kairosPath: string): Promise<void> {
     try {
       const spinner = new Spinner();
       spinner.start("処理中...");
+      const tracker = createSpeedTracker(false);
+      agent.setStreamCallbacks(tracker.callbacks);
       const response = await agent.processUserInput(input);
       spinner.stop();
       console.log("\n" + response + "\n");
+      tracker.printSummary();
     } catch (error) {
       console.error("Error:", error instanceof Error ? error.message : String(error));
     }
@@ -1231,9 +1336,12 @@ async function handleAutoMode(
     try {
       const spinner = new Spinner();
       spinner.start(`🤔 "${currentQuery.substring(0, 40)}..." を処理中...`);
+      const tracker = createSpeedTracker(false);
+      agent.setStreamCallbacks(tracker.callbacks);
       const response = await agent.processUserInput(currentQuery);
       spinner.stop();
       console.log("\n" + response);
+      tracker.printSummary();
 
       // レスポンスに「完了」「finished」「done」等が含まれるか、
       // ツールコールが無くテキストのみの応答なら完了と判断
@@ -1692,12 +1800,16 @@ License: MIT
   try {
     const spinner = new Spinner();
     spinner.start("処理中...");
+    const tracker = createSpeedTracker(false);
+    agent.setStreamCallbacks(tracker.callbacks);
     const response = await agent.processUserInput(query);
     spinner.stop();
     console.log("\n" + "=".repeat(80));
     console.log("\n✅ Response:\n");
     console.log(response);
-    console.log("\n" + "=".repeat(80) + "\n");
+    console.log("\n" + "=".repeat(80));
+    tracker.printSummary();
+    console.log("");
   } catch (error) {
     console.error("Error processing query:", error);
     process.exit(1);
