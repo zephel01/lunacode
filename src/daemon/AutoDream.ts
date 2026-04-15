@@ -123,7 +123,7 @@ export class AutoDream {
         ...consolidationResult,
         contradictionsResolved: this.state.contradictionsResolved,
         insightsExtracted: this.state.insightsExtracted,
-        memoriesCompressed: compactionResult.compressedLines,
+        memoriesCompressed: compactionResult.memoriesCompressed,
         topicsCreated: compactionResult.topicsCreated,
         durationMs: Date.now() - startTime,
       });
@@ -140,7 +140,7 @@ export class AutoDream {
       );
       console.log(`   Insights extracted: ${this.state.insightsExtracted}`);
       console.log(
-        `   Memories compressed: ${compactionResult.compressedLines}`,
+        `   Memories compressed: ${compactionResult.memoriesCompressed}`,
       );
       console.log(`   Topics created: ${compactionResult.topicsCreated}`);
 
@@ -148,7 +148,7 @@ export class AutoDream {
         ...consolidationResult,
         contradictionsResolved: this.state.contradictionsResolved,
         insightsExtracted: this.state.insightsExtracted,
-        memoriesCompressed: compactionResult.compressedLines,
+        memoriesCompressed: compactionResult.memoriesCompressed,
         topicsCreated: compactionResult.topicsCreated,
         durationMs: Date.now() - startTime,
       };

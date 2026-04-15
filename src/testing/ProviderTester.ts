@@ -265,8 +265,8 @@ export class ProviderTester {
         category: "コンテキスト",
         status: "pass",
         durationMs: Date.now() - start,
-        message: `${modelInfo.contextLength.toLocaleString()} tokens (${modelInfo.name})`,
-        details: `source: ${modelInfo.source}`,
+        message: `${modelInfo.contextLength.toLocaleString()} tokens (${modelInfo.category})`,
+        details: `supports tools: ${modelInfo.supportsTools}, streaming: ${modelInfo.supportsStreaming}`,
       });
     } catch (error) {
       this.addResult({
@@ -542,10 +542,11 @@ Available tools:
       await memory.initialize();
 
       // 書き込みテスト
-      await memory.update("Test project for provider testing");
+      await memory.updateMemory("Test project for provider testing");
 
       // 読み取りテスト
-      const content = await memory.getRelevantContext("test");
+      const results = await memory.searchMemory("test");
+      const content = results.length > 0 ? results[0].content : "";
 
       // ログ追記テスト
       await memory.appendToLog("ProviderTester: test log entry");

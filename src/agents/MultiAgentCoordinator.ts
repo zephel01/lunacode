@@ -276,7 +276,7 @@ export class MultiAgentCoordinator {
 
     // アイドルなWorkerを探す
     const idleWorkers = Array.from(this.workers.values()).filter(
-      (w) => w.getStatus().status === "idle",
+      (w) => w.getState().status === "idle",
     );
 
     // タスクをWorkerに割り当て
@@ -454,10 +454,10 @@ export class MultiAgentCoordinator {
     return {
       totalWorkers: this.workers.size,
       idleWorkers: Array.from(this.workers.values()).filter(
-        (w) => w.getStatus().status === "idle",
+        (w) => w.getState().status === "idle",
       ).length,
       busyWorkers: Array.from(this.workers.values()).filter(
-        (w) => w.getStatus().status === "busy",
+        (w) => w.getState().status === "busy",
       ).length,
       totalTasks: this.state.totalTasks,
       completedTasks: this.state.completedTasks,

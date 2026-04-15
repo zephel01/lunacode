@@ -863,8 +863,8 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
       currentState.lastInteraction = stateData.lastInteraction;
     } catch {
       // 新しいペットを作成
-      const petType = args.includes("--type")
-        ? PetType[args[args.indexOf("--type") + 1] as PetType]
+      const petType: any = args.includes("--type")
+        ? args[args.indexOf("--type") + 1]
         : PetType.CAT;
       const petName = args.includes("--name")
         ? args[args.indexOf("--name") + 1]

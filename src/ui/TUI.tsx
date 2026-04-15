@@ -151,6 +151,7 @@ function InteractiveMode({ state, onInput, width }: {
       <Input
         placeholder="Type your input..."
         onSubmit={onInput}
+        value=""
         width={width - 4}
       />
     </Box>

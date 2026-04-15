@@ -296,7 +296,7 @@ export class KAIROSDaemon {
       this.emitEvent({
         type: EventType.TICK,
         timestamp: event.timestamp,
-        data: event,
+        data: event as unknown as Record<string, unknown>,
       });
 
       // 全てのTickタスクを実行
@@ -365,7 +365,7 @@ export class KAIROSDaemon {
       this.emitEvent({
         type: EventType.PROACTIVE_ACTION,
         timestamp: Date.now(),
-        data: result,
+        data: result as unknown as Record<string, unknown>,
       });
     } else {
       console.log("😴 No proactive action needed");

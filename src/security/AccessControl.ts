@@ -128,8 +128,8 @@ export class AccessControlManager {
       action: "user_created",
       userId,
       username,
-      role,
       timestamp: Date.now(),
+      metadata: { role },
     });
 
     console.log(`✅ Created user: ${username} (${role})`);
@@ -193,8 +193,8 @@ export class AccessControlManager {
       action: "auth_success",
       userId: user.id,
       username,
-      token: token.token.substring(0, 16) + "...",
       timestamp: Date.now(),
+      metadata: { token: token.token.substring(0, 16) + "..." },
     });
 
     console.log(`✅ User authenticated: ${username}`);
@@ -279,9 +279,8 @@ export class AccessControlManager {
     this.auditLog.log({
       action: "policy_created",
       policyId,
-      name,
-      permissions: permissions.length,
       timestamp: Date.now(),
+      metadata: { name, permissions: permissions.length },
     });
 
     console.log(`✅ Created policy: ${name}`);
@@ -308,8 +307,8 @@ export class AccessControlManager {
     this.auditLog.log({
       action: "policy_updated",
       policyId,
-      updates: Object.keys(updates),
       timestamp: Date.now(),
+      metadata: { updates: Object.keys(updates) },
     });
   }
 

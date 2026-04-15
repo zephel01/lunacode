@@ -112,8 +112,8 @@ export class LMStudioProvider implements ILLMProvider {
   async listModels(): Promise<string[]> {
     try {
       const response = await fetch(`${this.config.baseUrl}/models`);
-      const data = await response.json();
-      return data.data.map((model: any) => model.id);
+      const data = (await response.json()) as { data: Array<{ id: string }> };
+      return data.data.map((model) => model.id);
     } catch (error) {
       console.error("Failed to list LM Studio models:", error);
       return [];

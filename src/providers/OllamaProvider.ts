@@ -18,14 +18,17 @@ export class OllamaProvider implements ILLMProvider {
   private requestTimeout: number;
 
   constructor(config: OllamaConfig) {
+    const baseUrl = config.baseUrl ?? "http://localhost:11434";
+    const model = config.model ?? "llama3.1";
+
     this.config = {
       type: "ollama",
-      baseUrl: config.baseUrl || "http://localhost:11434",
-      model: config.model || "llama3.1",
+      baseUrl,
+      model,
     };
 
-    this.baseUrl = this.config.baseUrl;
-    this.model = this.config.model;
+    this.baseUrl = baseUrl;
+    this.model = model;
     this.requestTimeout = config.requestTimeout ?? 300_000; // デフォルト 5 分
   }
 
@@ -194,7 +197,7 @@ export class OllamaProvider implements ILLMProvider {
                     console.log(
                       `[DEBUG] Extracted ${extractedCalls.length} tool call(s) from streamed content (fallback)`,
                     );
-                    streamToolCalls = extractedCalls;
+                    streamToolCalls = extractedCalls as typeof streamToolCalls;
                   }
                 }
 

@@ -2,6 +2,8 @@ import {
   ILLMProvider,
   LLMProviderConfig,
   LLMProviderType,
+  OpenAICompatibleConfig,
+  OllamaConfig,
 } from "./LLMProvider.js";
 import { OpenAIProvider } from "./OpenAIProvider.js";
 import { OllamaProvider } from "./OllamaProvider.js";
@@ -15,11 +17,11 @@ export class LLMProviderFactory {
   static createProvider(config: LLMProviderConfig): ILLMProvider {
     switch (config.type) {
       case "openai":
-        return new OpenAIProvider(config);
+        return new OpenAIProvider(config as OpenAICompatibleConfig);
       case "ollama":
-        return new OllamaProvider(config);
+        return new OllamaProvider(config as OllamaConfig);
       case "lmstudio":
-        return new LMStudioProvider(config);
+        return new LMStudioProvider(config as OpenAICompatibleConfig);
       case "litellm":
         // LiteLLMはOpenAI互換のAPIを使用
         return new LMStudioProvider({

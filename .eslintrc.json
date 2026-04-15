@@ -19,7 +19,8 @@
     "@typescript-eslint/ban-types": "warn",
     "@typescript-eslint/no-var-requires": "warn",
     "@typescript-eslint/no-this-alias": "warn",
-    "no-console": "off"
+    "no-console": "off",
+    "no-case-declarations": "warn"
   },
   "ignorePatterns": ["dist/", "node_modules/"]
 }
