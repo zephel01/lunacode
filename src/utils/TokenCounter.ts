@@ -19,7 +19,7 @@ export class TokenCounter {
     messages: Array<{
       role: string;
       content?: string | null;
-      tool_calls?: any[];
+      tool_calls?: unknown[];
     }>,
   ): number {
     let total = 0;

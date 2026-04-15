@@ -30,7 +30,7 @@ export interface ChatCompletionRequest {
   messages: ChatMessage[];
   temperature?: number;
   max_tokens?: number;
-  tools?: any[];
+  tools?: Record<string, unknown>[];
   stream?: boolean;
 }
 
@@ -119,7 +119,7 @@ export interface ILLMProvider {
   testConnection(): Promise<boolean>;
 
   // ストリーミング対応チャットコンプリション
-  chatCompletionStream?(request: ChatCompletionRequest): AsyncGenerator<any>;
+  chatCompletionStream?(request: ChatCompletionRequest): AsyncGenerator<unknown>;
 
   // ストリーミング対応かを判定
   supportsStreaming?(): boolean;

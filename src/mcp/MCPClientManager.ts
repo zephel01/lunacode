@@ -1,11 +1,15 @@
 import { MCPConnection, MCPServerConfig, MCPTool } from "./MCPConnection.js";
 import { Tool, ToolResult } from "../types/index.js";
 
+interface ToolRegistryLike {
+  register: (tool: Tool) => void;
+}
+
 export class MCPClientManager {
   private connections: Map<string, MCPConnection> = new Map();
-  private toolRegistry: any; // ToolRegistry - will be set from AgentLoop
+  private toolRegistry: ToolRegistryLike;
 
-  constructor(toolRegistry: any) {
+  constructor(toolRegistry: ToolRegistryLike) {
     this.toolRegistry = toolRegistry;
   }
 

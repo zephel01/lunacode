@@ -1,5 +1,5 @@
 import { BaseTool } from "./BaseTool.js";
-import { Tool, ToolResult } from "../types/index.js";
+import { ToolResult } from "../types/index.js";
 
 export class BashTool extends BaseTool {
   name = "bash";
@@ -387,8 +387,6 @@ export class GrepTool extends BaseTool {
         path?: string;
         include?: string;
       };
-
-      const { spawn } = await import("child_process");
 
       // シェルインジェクション対策: 引数配列方式で実行
       const args = [

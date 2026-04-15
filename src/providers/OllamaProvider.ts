@@ -175,7 +175,7 @@ export class OllamaProvider implements ILLMProvider {
                 // ネイティブツールモードでの tool_calls
                 if (this.useNativeTools && json.message?.tool_calls) {
                   streamToolCalls = json.message.tool_calls.map(
-                    (tc: any, i: number) => ({
+                    (tc: { function: { name: string; arguments: Record<string, unknown> } }, i: number) => ({
                       id: `tool_${i}_${Date.now()}`,
                       type: "function" as const,
                       function: {
@@ -498,7 +498,7 @@ export class OllamaProvider implements ILLMProvider {
    * メッセージを Ollama API 形式に変換
    * tool ロールのメッセージを適切に変換
    */
-  private convertMessages(messages: any[]): any[] {
+  private convertMessages(messages: Record<string, unknown>[]): Record<string, unknown>[] {
     return messages.map((msg) => {
       const converted: Record<string, unknown> = {
         role: msg.role,
@@ -678,21 +678,19 @@ export class OllamaProvider implements ILLMProvider {
    * パラメータスキーマをプロンプト用の簡潔な形式に変換
    * ネストが深い場合は要約し、LLM が理解しやすい記述にする
    */
-  private formatParametersForPrompt(schema: any): string {
+  private formatParametersForPrompt(schema: Record<string, unknown>): string {
     if (!schema || !schema.properties) return "{}";
 
     const parts: string[] = [];
-    for (const [key, prop] of Object.entries(schema.properties) as [
-      string,
-      any,
-    ][]) {
-      const required = schema.required?.includes(key) ? " (required)" : "";
+    type SchemaProp = { type?: string; enum?: unknown[]; items?: { type?: string; properties?: Record<string, SchemaProp> } };
+    for (const [key, prop] of Object.entries(schema.properties) as [string, SchemaProp][]) {
+      const required = (schema.required as string[] | undefined)?.includes(key) ? " (required)" : "";
 
       if (prop.type === "array" && prop.items?.type === "object") {
         // ネストされた配列オブジェクトは簡潔に記述
         const itemProps = prop.items.properties
           ? Object.entries(prop.items.properties)
-              .map(([k, v]: [string, any]) => {
+              .map(([k, v]: [string, SchemaProp]) => {
                 const enumValues = v.enum ? ` [${v.enum.join("|")}]` : "";
                 return `${k}: ${v.type}${enumValues}`;
               })
@@ -777,7 +775,7 @@ export class OllamaProvider implements ILLMProvider {
    * { name, arguments } / { function: { name, arguments } } / { tool: name, ... } に対応
    */
   private normalizeToolData(
-    data: any,
+    data: Record<string, unknown>,
   ): { name: string; arguments: Record<string, unknown> } | null {
     if (!data || typeof data !== "object") return null;
 

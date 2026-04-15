@@ -1,6 +1,14 @@
 import { ILLMProvider } from "../providers/LLMProvider.js";
 import { MemorySystem } from "../memory/MemorySystem.js";
 
+/** Worker イベントのペイロード型 */
+export interface WorkerEventData {
+  taskId?: string;
+  result?: string;
+  error?: string;
+  [key: string]: unknown;
+}
+
 /**
  * タスクの優先度
  */
@@ -166,15 +174,15 @@ export class MultiAgentCoordinator {
       this.workers.set(workerId, worker);
 
       // Workerイベントを監視
-      worker.on("task_completed", (event: any) => {
+      worker.on("task_completed", (event: WorkerEventData) => {
         this.handleWorkerTaskCompleted(workerId, event);
       });
 
-      worker.on("task_failed", (event: any) => {
+      worker.on("task_failed", (event: WorkerEventData) => {
         this.handleWorkerTaskFailed(workerId, event);
       });
 
-      worker.on("heartbeat", (event: any) => {
+      worker.on("heartbeat", (event: WorkerEventData) => {
         this.handleWorkerHeartbeat(workerId, event);
       });
     }
@@ -365,7 +373,7 @@ export class MultiAgentCoordinator {
    */
   private async handleWorkerTaskCompleted(
     workerId: string,
-    event: any,
+    event: WorkerEventData,
   ): Promise<void> {
     const task = this.tasks.get(event.taskId);
     if (!task) return;
@@ -384,7 +392,7 @@ export class MultiAgentCoordinator {
    */
   private async handleWorkerTaskFailed(
     workerId: string,
-    event: any,
+    event: WorkerEventData,
   ): Promise<void> {
     const task = this.tasks.get(event.taskId);
     if (!task) return;
@@ -423,7 +431,7 @@ export class MultiAgentCoordinator {
    */
   private async handleWorkerHeartbeat(
     workerId: string,
-    event: any,
+    _event: WorkerEventData,
   ): Promise<void> {
     const worker = this.workers.get(workerId);
     if (!worker) return;
@@ -479,7 +487,7 @@ export class WorkerAgent {
   private llmProvider: ILLMProvider;
   private memorySystem: MemorySystem;
   private state: WorkerState;
-  private eventListeners: Map<string, Function[]> = new Map();
+  private eventListeners: Map<string, ((data: WorkerEventData) => void)[]> = new Map();
   private currentTask?: AgentTask;
 
   constructor(
@@ -653,7 +661,7 @@ export class WorkerAgent {
   /**
    * イベントリスナーの登録
    */
-  on(event: string, listener: Function): void {
+  on(event: string, listener: (data: WorkerEventData) => void): void {
     if (!this.eventListeners.has(event)) {
       this.eventListeners.set(event, []);
     }
@@ -663,7 +671,7 @@ export class WorkerAgent {
   /**
    * イベントの発行
    */
-  private emitEvent(event: string, data: any): void {
+  private emitEvent(event: string, data: WorkerEventData): void {
     const listeners = this.eventListeners.get(event);
     if (listeners) {
       for (const listener of listeners) {

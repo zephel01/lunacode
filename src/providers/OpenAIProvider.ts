@@ -40,7 +40,7 @@ export class OpenAIProvider implements ILLMProvider {
   ): Promise<ChatCompletionResponse> {
     const response = await this.client.chat.completions.create({
       model: request.model || this.config.model || "gpt-4o-mini",
-      messages: request.messages as any,
+      messages: request.messages as unknown[],
       temperature: request.temperature || this.config.temperature || 0.7,
       max_tokens: request.max_tokens || this.config.maxTokens || 1000,
       tools: request.tools,

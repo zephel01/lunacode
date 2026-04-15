@@ -164,7 +164,6 @@ export class BuddyMode {
     this.state.lastInteraction = Date.now();
     this.interactionCount++;
 
-    const petInfo = PET_INFO[this.state.type];
     const emotionResponses = EMOTION_RESPONSES[this.state.emotion];
 
     return {
@@ -183,8 +182,6 @@ export class BuddyMode {
     this.state.happiness = Math.min(100, this.state.happiness + 10);
     this.state.lastInteraction = Date.now();
     this.interactionCount++;
-
-    const petInfo = PET_INFO[this.state.type];
 
     return {
       message: `${this.getEmoji()} ${this.state.name}ちゃん、撫でられた！\n😻 だーいすき！`,

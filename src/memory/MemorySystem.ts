@@ -1,5 +1,4 @@
 import {
-  Memory,
   MemoryCompactionConfig,
   TopicInfo,
   MemorySearchResult,

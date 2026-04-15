@@ -88,7 +88,7 @@ export class AutoDream {
   /**
    * ドリームモードの実行
    */
-  async run(settings: DreamSettings): Promise<DreamConsolidationResult> {
+  async run(_settings: DreamSettings): Promise<DreamConsolidationResult> {
     if (this.state.isRunning) {
       throw new Error("Dream is already running");
     }
@@ -512,7 +512,7 @@ export class AutoDream {
    */
   private async extractInsightsFromContent(
     content: string,
-    source: string,
+    _source: string,
   ): Promise<InsightResult[]> {
     if (!this.llmProvider) {
       return [];
@@ -546,7 +546,7 @@ export class AutoDream {
       try {
         const result = JSON.parse(response);
 
-        return (result.insights || []).map((insight: any) => ({
+        return (result.insights || []).map((insight: { content: string; confidence?: number; category?: string }) => ({
           content: insight.content,
           confidence: insight.confidence || 0.5,
           sourceLines: [],

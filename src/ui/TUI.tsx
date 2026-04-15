@@ -29,7 +29,7 @@ export interface UIState {
   streaming: boolean;
   agentStatus: string;
   daemonStatus: string;
-  memoryStats: any;
+  memoryStats: Record<string, unknown>;
 }
 
 /**
@@ -40,7 +40,7 @@ export function LunaCodeUI({ state, onQuery, onInteractive }: {
   onQuery: (query: string) => void;
   onInteractive: (input: string) => void;
 }) {
-  const { exit } = useApp();
+  useApp();
   const { stdout } = useStdout();
   const columns = stdout?.columns ?? 80;
 
@@ -161,7 +161,7 @@ function InteractiveMode({ state, onInput, width }: {
 /**
  * ステータスモード
  */
-function StatusMode({ state, width }: {
+function StatusMode({ state, width: _width }: {
   state: UIState;
   width: number;
 }) {
@@ -206,7 +206,7 @@ function DaemonStatus({ status }: { status: string }) {
 /**
  * メモリ統計
  */
-function MemoryStats({ stats }: { stats: any }) {
+function MemoryStats({ stats }: { stats: Record<string, unknown> }) {
   if (!stats) {
     return <Text color="dim">Memory stats not available</Text>;
   }
@@ -265,7 +265,7 @@ function StatusBar({ state }: { state: UIState }) {
 /**
  * 入力コンポーネント
  */
-function Input({ placeholder, onSubmit, value, width }: {
+function Input({ placeholder, onSubmit: _onSubmit, value: _value, width }: {
   placeholder: string;
   onSubmit: (value: string) => void;
   value: string;
@@ -322,11 +322,9 @@ export class UIManager {
     console.log('🖥️ Starting TUI Interface...');
 
     // React Inkアプリケーションを起動
-    const { render } = require('ink');
-
-    const self = this;
+    void import('ink').then(({ render }) => {
     const App = () => {
-      const [state, setState] = React.useState(self.state);
+      const [state] = React.useState(this.state);
 
       const handleQuery = (query: string) => {
         this.state.query = query;
@@ -352,6 +350,7 @@ export class UIManager {
     };
 
     render(React.createElement(App));
+    });
   }
 
   /**
@@ -434,7 +433,7 @@ export class UIManager {
   /**
    * メモリ統計を設定
    */
-  setMemoryStats(stats: any): void {
+  setMemoryStats(stats: Record<string, unknown>): void {
     this.updateState({ memoryStats: stats });
   }
 

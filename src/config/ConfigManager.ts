@@ -277,7 +277,7 @@ export class ConfigManager {
    * 設定セクションを名前で取得（Phase 5/6/9 等の拡張設定に対応）
    * config.json の任意のトップレベルキーを取得できる
    */
-  get(section: string): any {
+  get(section: string): unknown {
     return (this.config as Record<string, unknown>)[section] ?? undefined;
   }
 

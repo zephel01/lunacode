@@ -63,7 +63,6 @@ export class SubAgentManager {
       const fullTask = `${rolePrompt}\n\nTask: ${config.task}`;
 
       // Execute with timeout
-      const maxIterations = config.maxIterations ?? 10;
       const timeout = config.timeout ?? 120000;
 
       const result = await this.executeWithTimeout(

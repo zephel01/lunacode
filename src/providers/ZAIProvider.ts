@@ -86,7 +86,7 @@ export class ZAIProvider implements ILLMProvider {
   ): Promise<ChatCompletionResponse> {
     const response = await this.client.chat.completions.create({
       model: request.model || this.config.model,
-      messages: request.messages as any,
+      messages: request.messages as unknown[],
       temperature: request.temperature ?? this.config.temperature,
       max_tokens: request.max_tokens ?? this.config.maxTokens,
       tools: request.tools,

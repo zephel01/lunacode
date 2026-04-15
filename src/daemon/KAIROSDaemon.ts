@@ -1,7 +1,6 @@
 import {
   DaemonState,
   TickEvent,
-  TickHandler,
   TickTask,
   TickPriority,
   ProactiveResult,
@@ -9,13 +8,12 @@ import {
   EventType,
   EventListener,
   ProactiveCondition,
-  DreamState,
   DreamSettings,
   NotificationConfig,
 } from "../types/index.js";
 import { MemorySystem } from "../memory/MemorySystem.js";
 import { ILLMProvider } from "../providers/LLMProvider.js";
-import { AutoDream, DreamConsolidationResult } from "./AutoDream.js";
+import { AutoDream } from "./AutoDream.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 
@@ -343,7 +341,7 @@ export class KAIROSDaemon {
   /**
    * プロアクティブチェック
    */
-  private async handleProactiveCheck(event: TickEvent): Promise<void> {
+  private async handleProactiveCheck(_event: TickEvent): Promise<void> {
     console.log("🔍 Running proactive check...");
 
     const result = await this.evaluateProactiveConditions();
@@ -386,7 +384,7 @@ export class KAIROSDaemon {
       let suggestedAction = "";
 
       switch (condition.type) {
-        case "idle_time":
+        case "idle_time": {
           // アイドル時間チェック
           const lastUserActivity = this.getLastUserActivityTime();
           const idleTime = (now - lastUserActivity) / 1000; // 秒
@@ -397,8 +395,9 @@ export class KAIROSDaemon {
             suggestedAction = "Suggest task or ask if help is needed";
           }
           break;
+        }
 
-        case "memory_pressure":
+        case "memory_pressure": {
           // メモリ圧力チェック
           const stats = await this.memorySystem.getMemoryStats();
 
@@ -408,6 +407,7 @@ export class KAIROSDaemon {
             suggestedAction = "Run memory compaction";
           }
           break;
+        }
 
         default:
           break;
@@ -433,7 +433,7 @@ export class KAIROSDaemon {
   /**
    * ドリームトリガーチェック
    */
-  private async handleDreamTriggerCheck(event: TickEvent): Promise<void> {
+  private async handleDreamTriggerCheck(_event: TickEvent): Promise<void> {
     if (!this.dreamSettings.autoTrigger) {
       return;
     }
@@ -474,7 +474,7 @@ export class KAIROSDaemon {
    * メモリ統合チェック
    */
   private async handleMemoryConsolidationCheck(
-    event: TickEvent,
+    _event: TickEvent,
   ): Promise<void> {
     const now = Date.now();
     const lastDreamTime = await this.getLastDreamTime();
@@ -493,7 +493,7 @@ export class KAIROSDaemon {
   /**
    * ヘルスチェック
    */
-  private async handleHealthCheck(event: TickEvent): Promise<void> {
+  private async handleHealthCheck(_event: TickEvent): Promise<void> {
     console.log(
       `💓 Health check - Uptime: ${this.formatUptime(this.state.uptimeSeconds)}, Ticks: ${this.state.tickCount}`,
     );

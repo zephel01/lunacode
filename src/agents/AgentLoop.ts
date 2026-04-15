@@ -560,10 +560,11 @@ When you have enough information or the task is complete, provide a clear, conci
                 const writeTools = ["write_file", "edit_file", "bash"];
                 if (writeTools.includes(toolCall.function.name)) {
                   try {
+                    const typedArgs = parsedArgs as Record<string, unknown>;
                     const argSummary =
                       toolCall.function.name === "bash"
-                        ? (parsedArgs as any).command?.substring(0, 50) || ""
-                        : (parsedArgs as any).path || "";
+                        ? (typedArgs.command as string | undefined)?.substring(0, 50) ?? ""
+                        : (typedArgs.path as string | undefined) ?? "";
                     await this.checkpointManager.create(
                       `Before: ${toolCall.function.name}(${argSummary})`,
                     );
@@ -576,7 +577,7 @@ When you have enough information or the task is complete, provide a clear, conci
               // Phase 6: 承認チェック
               if (this.approvalManager) {
                 const tool = this.toolRegistry.get(toolCall.function.name);
-                const riskLevel = (tool as any)?.riskLevel || "MEDIUM";
+                const riskLevel = (tool as { riskLevel?: string } | undefined)?.riskLevel ?? "MEDIUM";
                 const { approved, args: finalArgs } =
                   await this.approvalManager.checkApproval(
                     toolCall.function.name,
@@ -665,11 +666,12 @@ When you have enough information or the task is complete, provide a clear, conci
                     toolResult.success
                   ) {
                     // ファイル書き込み成功を記録
-                    const filePath = (parsedArgs as any).path as string;
+                    const ltmArgs = parsedArgs as Record<string, unknown>;
+                    const filePath = ltmArgs.path as string | undefined;
                     if (filePath) {
                       await this.longTermMemory.storeCode(
                         `ファイル操作: ${toolCall.function.name}`,
-                        (parsedArgs as any).content?.substring(0, 300) || "",
+                        ((ltmArgs.content as string | undefined) ?? "").substring(0, 300),
                         filePath,
                         this.sessionId,
                       );
@@ -686,17 +688,18 @@ When you have enough information or the task is complete, provide a clear, conci
                 let contentToCheck: string | null = null;
                 let filePath: string | null = null;
 
+                const skeletonArgs = parsedArgs as Record<string, unknown>;
                 if (
                   toolCall.function.name === "write_file" &&
                   toolResult.success
                 ) {
-                  filePath = (parsedArgs as any).path as string;
-                  contentToCheck = (parsedArgs as any).content as string;
+                  filePath = skeletonArgs.path as string | null;
+                  contentToCheck = skeletonArgs.content as string | null;
                 } else if (
                   toolCall.function.name === "read_file" &&
                   toolResult.success
                 ) {
-                  filePath = (parsedArgs as any).path as string;
+                  filePath = skeletonArgs.path as string | null;
                   contentToCheck = toolResult.output;
                 }
 

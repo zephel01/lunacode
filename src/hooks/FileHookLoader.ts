@@ -3,7 +3,7 @@ import * as path from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { HookManager } from "./HookManager.js";
-import { HookContext } from "../types/index.js";
+import { HookContext, HookEvent } from "../types/index.js";
 
 const execAsync = promisify(exec);
 
@@ -41,7 +41,7 @@ export class FileHookLoader {
     for (const hookConfig of config.hooks) {
       hookManager.register({
         name: hookConfig.name,
-        event: hookConfig.event as any,
+        event: hookConfig.event as HookEvent,
         priority: hookConfig.priority,
         handler: async (context: HookContext) => {
           // Condition check: toolName

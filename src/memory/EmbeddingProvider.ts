@@ -266,8 +266,8 @@ export async function createAutoEmbeddingProvider(
   ollamaBaseUrl?: string,
   openAIApiKey?: string,
 ): Promise<IEmbeddingProvider> {
-  // Ollama が起動しているか確認
-  if (ollamaBaseUrl || true) {
+  // Ollama が起動しているか確認（常に試行し、失敗したら次へ）
+  {
     const url = ollamaBaseUrl ?? "http://localhost:11434";
     try {
       const response = await fetch(`${url}/api/tags`, {

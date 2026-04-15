@@ -133,10 +133,12 @@ export class ModelRegistry {
 
       if (!response.ok) return null;
 
-      const data = (await response.json()) as any;
+      const data = (await response.json()) as {
+        model_info?: Record<string, number>;
+      };
 
       // Extract context length from model parameters
-      const params = data.model_info || {};
+      const params = data.model_info ?? {};
       let contextLength = DEFAULT_MODEL_INFO.contextLength;
 
       // Look for context length in various fields

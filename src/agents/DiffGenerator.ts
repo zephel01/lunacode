@@ -1,5 +1,4 @@
 import * as fs from "fs/promises";
-import * as path from "path";
 
 /**
  * Utility class for generating unified diff output.
@@ -267,8 +266,10 @@ export class DiffGenerator {
     newLines: string[],
   ): Array<["context" | "remove" | "add", string]> {
     const result: Array<["context" | "remove" | "add", string]> = [];
-    const oldSet = new Set(oldLines);
-    const newSet = new Set(newLines);
+    // oldSet / newSet は将来の最適化用に予約（現在は未使用）
+    const _oldSet = new Set(oldLines);
+    const _newSet = new Set(newLines);
+    void _oldSet; void _newSet;
 
     // Track which lines from oldLines appear in newLines
     let oldIdx = 0;

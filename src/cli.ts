@@ -138,7 +138,7 @@ async function createProvider(providerName: string) {
   const configManager = new ConfigManager(kairosPath);
   await configManager.load();
   configManager.updateLLMProvider({
-    provider: providerName as any,
+    provider: providerName as "ollama" | "openai" | "lmstudio" | "zai",
   });
   const providerConfig = configManager.getLLMProviderConfig();
   return LLMProviderFactory.createProvider(providerConfig);
@@ -173,8 +173,8 @@ async function fetchOllamaModels(
   try {
     const response = await fetch(`${baseUrl}/api/tags`);
     if (!response.ok) return [];
-    const data = (await response.json()) as any;
-    return (data.models || []).map((m: any) => ({
+    const data = (await response.json()) as { models?: Array<{ name: string; size?: number; modified_at?: string }> };
+    return (data.models || []).map((m) => ({
       name: m.name,
       size: m.size ? `${(m.size / 1024 / 1024 / 1024).toFixed(1)}GB` : "?",
       modified: m.modified_at
@@ -193,8 +193,8 @@ async function fetchLMStudioModels(baseUrl: string): Promise<string[]> {
   try {
     const response = await fetch(`${baseUrl}/models`);
     if (!response.ok) return [];
-    const data = (await response.json()) as any;
-    return (data.data || []).map((m: any) => m.id);
+    const data = (await response.json()) as { data?: Array<{ id: string }> };
+    return (data.data || []).map((m) => m.id);
   } catch {
     return [];
   }
@@ -278,7 +278,7 @@ async function handleInitCommand(
   console.log(`\n✅ Provider: ${provider}\n`);
 
   // プロバイダーごとのデフォルト設定を生成
-  const config: Record<string, any> = {
+  const config: Record<string, unknown> = {
     llm: {
       provider,
       temperature: 0.7,
@@ -491,9 +491,9 @@ async function handleConfigCommand(
       }
       // ドット区切りのキーを解析して設定を更新
       const configPath = path.join(kairosPath, "config.json");
-      let config: Record<string, any>;
+      let config: Record<string, unknown>;
       try {
-        config = JSON.parse(await fs.readFile(configPath, "utf-8"));
+        config = JSON.parse(await fs.readFile(configPath, "utf-8")) as Record<string, unknown>;
       } catch {
         config = {};
       }
@@ -948,7 +948,7 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
       currentState.lastInteraction = stateData.lastInteraction;
     } catch {
       // 新しいペットを作成
-      const petType: any = args.includes("--type")
+      const petType = args.includes("--type")
         ? args[args.indexOf("--type") + 1]
         : PetType.CAT;
       const petName = args.includes("--name")
@@ -979,7 +979,7 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
         console.log(buddy.displayInfo());
         break;
 
-      case "call":
+      case "call": {
         const name = args[1];
         if (!name) {
           console.error("Error: Name is required");
@@ -993,8 +993,9 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
         }
         await saveBuddyState(buddy, buddyStatePath);
         break;
+      }
 
-      case "talk":
+      case "talk": {
         const message = args.slice(1).join(" ");
         if (!message) {
           console.error("Error: Message is required");
@@ -1008,8 +1009,9 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
         }
         await saveBuddyState(buddy, buddyStatePath);
         break;
+      }
 
-      case "pet":
+      case "pet": {
         const petResponse = buddy.pet();
         console.log(petResponse.message);
         if (petResponse.action) {
@@ -1017,8 +1019,9 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
         }
         await saveBuddyState(buddy, buddyStatePath);
         break;
+      }
 
-      case "feed":
+      case "feed": {
         const feedResponse = buddy.feed();
         console.log(feedResponse.message);
         if (feedResponse.action) {
@@ -1026,8 +1029,9 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
         }
         await saveBuddyState(buddy, buddyStatePath);
         break;
+      }
 
-      case "play":
+      case "play": {
         const playResponse = buddy.play();
         console.log(playResponse.message);
         if (playResponse.action) {
@@ -1035,8 +1039,9 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
         }
         await saveBuddyState(buddy, buddyStatePath);
         break;
+      }
 
-      case "sleep":
+      case "sleep": {
         const sleepResponse = buddy.sleep();
         console.log(sleepResponse.message);
         if (sleepResponse.action) {
@@ -1044,8 +1049,9 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
         }
         await saveBuddyState(buddy, buddyStatePath);
         break;
+      }
 
-      case "types":
+      case "types": {
         console.log("\n🐾 Available Pet Types:\n");
         const types = getPetTypes();
         types.forEach((t) => {
@@ -1053,16 +1059,17 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
           console.log(`   Personality: ${t.personality}\n`);
         });
         break;
+      }
 
-      case "create":
+      case "create": {
         let newPetType;
         if (args.includes("--type")) {
           const typeIndex = args.indexOf("--type") + 1;
           const typeString = args[typeIndex];
           newPetType =
-            (PetType as any)[typeString.toUpperCase()] || PetType.CAT;
+            (PetType as Record<string, string>)[typeString.toUpperCase()] || PetType.CAT;
         } else {
-          newPetType = getRandomPetType();
+          newPetType = await getRandomPetType();
         }
 
         const newPetName = args.includes("--name")
@@ -1088,6 +1095,7 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
           "utf-8",
         );
         break;
+      }
 
       default:
         console.error(`Unknown buddy command: ${subCommand}`);
@@ -1105,7 +1113,7 @@ async function handleBuddyCommand(args: string[]): Promise<void> {
   }
 }
 
-async function saveBuddyState(buddy: any, statePath: string): Promise<void> {
+async function saveBuddyState(buddy: { getState(): { name: string; type: string; emotion: string; energy: number; hunger: number; happiness: number; lastInteraction: number } }, statePath: string): Promise<void> {
   const state = buddy.getState();
   const stateData = {
     name: state.name,
@@ -1119,9 +1127,9 @@ async function saveBuddyState(buddy: any, statePath: string): Promise<void> {
   await fs.writeFile(statePath, JSON.stringify(stateData, null, 2), "utf-8");
 }
 
-function getRandomPetType(): any {
-  const { PetType } = require("./buddy/BuddyMode.js");
-  const types = Object.values(PetType);
+async function getRandomPetType(): Promise<string> {
+  const { PetType } = await import("./buddy/BuddyMode.js");
+  const types = Object.values(PetType) as string[];
   return types[Math.floor(Math.random() * types.length)];
 }
 
@@ -1141,7 +1149,7 @@ async function handleMemoryCommand(args: string[]): Promise<void> {
       case "stats":
         await handleMemoryStats(memorySystem);
         break;
-      case "search":
+      case "search": {
         const query = args.slice(2).join(" ");
         if (!query) {
           console.error("Error: Search query is required");
@@ -1150,6 +1158,7 @@ async function handleMemoryCommand(args: string[]): Promise<void> {
         }
         await handleMemorySearch(memorySystem, query);
         break;
+      }
       case "compact":
         await handleMemoryCompact(memorySystem);
         break;

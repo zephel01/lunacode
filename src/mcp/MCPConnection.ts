@@ -34,7 +34,7 @@ export class MCPConnection {
   private requestId: number = 0;
   private pendingRequests: Map<
     number,
-    { resolve: Function; reject: Function; timer: NodeJS.Timeout }
+    { resolve: (value: unknown) => void; reject: (reason: unknown) => void; timer: NodeJS.Timeout }
   > = new Map();
   private connected: boolean = false;
   private buffer: string = "";
