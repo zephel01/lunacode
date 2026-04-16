@@ -350,7 +350,13 @@ export interface HookDefinition {
 // Phase 8: サブエージェント
 // ========================================
 
-export type SubAgentRole = "explorer" | "worker" | "reviewer" | "planner" | "coder" | "tester";
+export type SubAgentRole =
+  | "explorer"
+  | "worker"
+  | "reviewer"
+  | "planner"
+  | "coder"
+  | "tester";
 
 export interface SubAgentConfig {
   id?: string;
@@ -534,10 +540,10 @@ export interface PipelineStageResult {
  * パイプライン全体を通じて蓄積されるアーティファクト
  */
 export interface PipelineArtifacts {
-  plan?: string;        // Plannerが生成した実装計画
-  code?: string;        // Coderが生成・修正したコード
+  plan?: string; // Plannerが生成した実装計画
+  code?: string; // Coderが生成・修正したコード
   testResults?: string; // Testerが実行したテスト結果
-  review?: string;      // Reviewerが提供したレビュー
+  review?: string; // Reviewerが提供したレビュー
 }
 
 /**
@@ -551,7 +557,10 @@ export interface PipelineConfig {
   /** スキップするステージ */
   skipStages?: PipelineRole[];
   /** ステージ完了時のコールバック */
-  onStageComplete?: (result: PipelineStageResult, artifacts: PipelineArtifacts) => void;
+  onStageComplete?: (
+    result: PipelineStageResult,
+    artifacts: PipelineArtifacts,
+  ) => void;
   /** ステージ開始時のコールバック */
   onStageStart?: (stage: PipelineRole, iteration: number) => void;
 }

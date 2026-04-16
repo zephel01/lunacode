@@ -26,8 +26,21 @@ import {
 } from "../types/index.js";
 
 // Testerの出力から成否を判定するキーワード
-const TESTER_PASS_KEYWORDS = ["PASSED", "passed", "✅", "all tests pass", "success"];
-const TESTER_FAIL_KEYWORDS = ["FAILED", "failed", "❌", "test failed", "error", "assertion"];
+const TESTER_PASS_KEYWORDS = [
+  "PASSED",
+  "passed",
+  "✅",
+  "all tests pass",
+  "success",
+];
+const TESTER_FAIL_KEYWORDS = [
+  "FAILED",
+  "failed",
+  "❌",
+  "test failed",
+  "error",
+  "assertion",
+];
 
 /**
  * パイプラインの実行コンテキスト（ステージ間で引き継がれる情報）
@@ -104,10 +117,17 @@ export class PipelineOrchestrator {
 
       while (coderIteration < this.config.maxRetries) {
         // --- Coder ---
-        const coderResult = await this.runStage("coder", context, coderIteration);
+        const coderResult = await this.runStage(
+          "coder",
+          context,
+          coderIteration,
+        );
         stageResults.push(coderResult);
 
-        if (coderResult.status === "failed" || coderResult.status === "timeout") {
+        if (
+          coderResult.status === "failed" ||
+          coderResult.status === "timeout"
+        ) {
           return this.buildResult(
             taskDescription,
             "failed",
@@ -124,7 +144,11 @@ export class PipelineOrchestrator {
 
         // --- Tester ---
         // runStage が skipStages を内部で処理するため常に呼び出す
-        const testerResult = await this.runStage("tester", context, coderIteration);
+        const testerResult = await this.runStage(
+          "tester",
+          context,
+          coderIteration,
+        );
         stageResults.push(testerResult);
 
         if (testerResult.status === "skipped") {
@@ -217,7 +241,9 @@ export class PipelineOrchestrator {
       };
     }
 
-    console.log(`\n▶️  Stage [${role.toUpperCase()}] (iteration ${iteration + 1})`);
+    console.log(
+      `\n▶️  Stage [${role.toUpperCase()}] (iteration ${iteration + 1})`,
+    );
     this.config.onStageStart(role, iteration);
 
     const task = this.buildStageTask(role, context, iteration);
@@ -346,13 +372,13 @@ export class PipelineOrchestrator {
     const lower = output.toLowerCase();
 
     // PASSED キーワードを含むかチェック
-    const hasPassed = TESTER_PASS_KEYWORDS.some((kw) =>
-      output.includes(kw) || lower.includes(kw.toLowerCase()),
+    const hasPassed = TESTER_PASS_KEYWORDS.some(
+      (kw) => output.includes(kw) || lower.includes(kw.toLowerCase()),
     );
 
     // FAILED キーワードを含むかチェック
-    const hasFailed = TESTER_FAIL_KEYWORDS.some((kw) =>
-      output.includes(kw) || lower.includes(kw.toLowerCase()),
+    const hasFailed = TESTER_FAIL_KEYWORDS.some(
+      (kw) => output.includes(kw) || lower.includes(kw.toLowerCase()),
     );
 
     // PASSED が明示的にあり、FAILED がない場合のみ成功とみなす
