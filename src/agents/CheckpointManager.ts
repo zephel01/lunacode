@@ -64,11 +64,24 @@ export class CheckpointManager {
         await this.executeGitAsync(["init"]);
         // Set up initial commit
         try {
-          await this.executeGitAsync(["config", "user.email", "checkpoint@lunacode.local"]);
-          await this.executeGitAsync(["config", "user.name", "LunaCode Checkpoint"]);
+          await this.executeGitAsync([
+            "config",
+            "user.email",
+            "checkpoint@lunacode.local",
+          ]);
+          await this.executeGitAsync([
+            "config",
+            "user.name",
+            "LunaCode Checkpoint",
+          ]);
           // Create initial commit
           await this.executeGitAsync(["add", "-A"]);
-          await this.executeGitAsync(["commit", "-m", "Initial checkpoint", "--allow-empty"]);
+          await this.executeGitAsync([
+            "commit",
+            "-m",
+            "Initial checkpoint",
+            "--allow-empty",
+          ]);
         } catch (e) {
           // Ignore initial setup errors
         }
@@ -220,7 +233,11 @@ export class CheckpointManager {
     try {
       // Restore to the last checkpoint's state
       const latestCheckpoint = this.checkpoints[this.checkpoints.length - 1];
-      await this.executeGitAsync(["reset", "--hard", latestCheckpoint.commitHash]);
+      await this.executeGitAsync([
+        "reset",
+        "--hard",
+        latestCheckpoint.commitHash,
+      ]);
       return true;
     } catch (e) {
       console.error("Failed to undo:", e);
@@ -258,7 +275,10 @@ export class CheckpointManager {
         toHash = toCheckpoint.commitHash;
       }
 
-      return await this.executeGitAsync(["diff", `${fromCheckpoint.commitHash}..${toHash}`]);
+      return await this.executeGitAsync([
+        "diff",
+        `${fromCheckpoint.commitHash}..${toHash}`,
+      ]);
     } catch (e) {
       console.error("Failed to get diff:", e);
       return "";

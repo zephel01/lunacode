@@ -188,7 +188,11 @@ export class AutoGitWorkflow {
       }
 
       // ステージ済みファイルの確認
-      const stagedOutput = await this.gitAsync(["diff", "--cached", "--name-only"]);
+      const stagedOutput = await this.gitAsync([
+        "diff",
+        "--cached",
+        "--name-only",
+      ]);
       const filesChanged = stagedOutput
         .trim()
         .split("\n")
@@ -481,7 +485,9 @@ export class AutoGitWorkflow {
   private buildPRInstructions(taskSummary: string): string {
     const branch = (async () => {
       try {
-        return (await this.gitAsync(["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+        return (
+          await this.gitAsync(["rev-parse", "--abbrev-ref", "HEAD"])
+        ).trim();
       } catch {
         return "<your-branch>";
       }
@@ -555,7 +561,10 @@ export class AutoGitWorkflow {
     const [sub, ...rest] = args;
     // 安全ガード: 危険なコマンドパターンをブロック
     for (const rule of BLOCKED_GIT_SUBCOMMANDS_WITH_FLAGS) {
-      if (sub === rule.sub && (!rule.flag || rest.some((a) => rule.flag!.test(a)))) {
+      if (
+        sub === rule.sub &&
+        (!rule.flag || rest.some((a) => rule.flag!.test(a)))
+      ) {
         throw new Error(`Blocked dangerous git command: git ${args.join(" ")}`);
       }
     }

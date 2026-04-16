@@ -65,7 +65,10 @@ export interface TestResult {
 
 // CWD → 検出結果のキャッシュ（TTL 60 秒）
 const DETECT_CACHE_TTL_MS = 60_000;
-const CWD_DETECT_CACHE = new Map<string, { framework: TestFramework; ts: number }>();
+const CWD_DETECT_CACHE = new Map<
+  string,
+  { framework: TestFramework; ts: number }
+>();
 
 const MARKER_FILES = [
   "Cargo.toml",
@@ -91,7 +94,9 @@ async function detectFramework(cwd: string): Promise<TestFramework> {
     MARKER_FILES.map((m) => fsp.stat(join(cwd, m))),
   );
   const exists = new Map<string, boolean>();
-  MARKER_FILES.forEach((m, i) => exists.set(m, statResults[i].status === "fulfilled"));
+  MARKER_FILES.forEach((m, i) =>
+    exists.set(m, statResults[i].status === "fulfilled"),
+  );
 
   const framework = await resolveFrameworkFromMarkers(cwd, exists);
   CWD_DETECT_CACHE.set(cwd, { framework, ts: Date.now() });

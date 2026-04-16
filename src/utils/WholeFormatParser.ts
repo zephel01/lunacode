@@ -69,8 +69,7 @@ export function extractFiles(text: string): ExtractedFile[] {
 
   // パターン1: filepath\n```lang\ncontent\n```
   // ファイルパスが単独の行として現れ、直後にコードブロックが続く形式
-  const wholeRe =
-    /^([\w./\\-]+\.\w{1,10})\s*\n```[\w]*\n([\s\S]*?)^```/gm;
+  const wholeRe = /^([\w./\\-]+\.\w{1,10})\s*\n```[\w]*\n([\s\S]*?)^```/gm;
   for (const match of text.matchAll(wholeRe)) {
     const path = match[1].trim();
     const content = match[2];

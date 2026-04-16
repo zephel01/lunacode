@@ -41,16 +41,22 @@ export function runGit(
       if (!settled) {
         settled = true;
         proc.kill("SIGKILL");
-        reject(new GitCommandError(
-          `git ${args.join(" ")} timed out after ${timeoutMs}ms`,
-          null,
-          stderr,
-        ));
+        reject(
+          new GitCommandError(
+            `git ${args.join(" ")} timed out after ${timeoutMs}ms`,
+            null,
+            stderr,
+          ),
+        );
       }
     }, timeoutMs);
 
-    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+    proc.stdout.on("data", (d: Buffer) => {
+      stdout += d.toString();
+    });
+    proc.stderr.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
 
     proc.on("error", (err) => {
       if (settled) return;
@@ -64,13 +70,15 @@ export function runGit(
       settled = true;
       clearTimeout(timer);
       if (code === 0) {
-        resolve(combineStderr ? (stdout + stderr) : stdout);
+        resolve(combineStderr ? stdout + stderr : stdout);
       } else {
-        reject(new GitCommandError(
-          `git ${args.join(" ")} exited ${code}: ${stderr.trim()}`,
-          code,
-          stderr,
-        ));
+        reject(
+          new GitCommandError(
+            `git ${args.join(" ")} exited ${code}: ${stderr.trim()}`,
+            code,
+            stderr,
+          ),
+        );
       }
     });
   });

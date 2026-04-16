@@ -395,9 +395,7 @@ export class OllamaProvider implements ILLMProvider {
     } else if (data.message.content) {
       toolCalls = this.extractToolCallsFromText(data.message.content);
       if (toolCalls.length > 0) {
-        this.log.debug(
-          `Text-extracted tool calls: ${toolCalls.length} calls`,
-        );
+        this.log.debug(`Text-extracted tool calls: ${toolCalls.length} calls`);
       }
     }
 
@@ -479,9 +477,7 @@ export class OllamaProvider implements ILLMProvider {
     if (data.message.content) {
       toolCalls = this.extractToolCallsFromText(data.message.content);
       if (toolCalls.length > 0) {
-        this.log.debug(
-          `Text-extracted tool calls: ${toolCalls.length} calls`,
-        );
+        this.log.debug(`Text-extracted tool calls: ${toolCalls.length} calls`);
         toolCalls.forEach((tc) => {
           this.log.debug(`  ✅ ${tc.function.name}`);
         });

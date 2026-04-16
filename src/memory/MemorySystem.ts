@@ -376,7 +376,11 @@ export class MemorySystem {
       const mtime = stat.mtimeMs;
 
       const cached = this.contentCache.get(filePath);
-      if (cached && cached.mtime === mtime && Date.now() - mtime < this.CACHE_TTL_MS) {
+      if (
+        cached &&
+        cached.mtime === mtime &&
+        Date.now() - mtime < this.CACHE_TTL_MS
+      ) {
         return { lines: cached.lines, linesLower: cached.linesLower };
       }
 
@@ -424,7 +428,10 @@ export class MemorySystem {
       topicFiles.map(async (tf) => {
         const content = await this.readTopic(tf);
         const topicPath = path.join(this.topicsPath, `${tf}.md`);
-        const preprocessed = await this.getPreprocessedContent(topicPath, content);
+        const preprocessed = await this.getPreprocessedContent(
+          topicPath,
+          content,
+        );
         return { preprocessed };
       }),
     );

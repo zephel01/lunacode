@@ -221,13 +221,14 @@ export class VectorStore {
     const results: VectorSearchResult[] = [];
 
     // 正規表現の特殊文字をエスケープ（W2-4: キャッシュ + エスケープ）
-    const escapedKeyword = lowerKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedKeyword = lowerKeyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const keywordRegex = new RegExp(escapedKeyword, "g");
 
     for (const entry of this.entries.values()) {
       if (entry.content.toLowerCase().includes(lowerKeyword)) {
         // キーワード出現頻度で簡易スコアリング（キャッシュした正規表現を再利用）
-        const matches = (entry.content.toLowerCase().match(keywordRegex) ?? []).length;
+        const matches = (entry.content.toLowerCase().match(keywordRegex) ?? [])
+          .length;
         const similarity = Math.min(0.5 + matches * 0.1, 1.0);
         results.push({ entry, similarity });
       }
@@ -302,7 +303,9 @@ export class VectorStore {
     const currentTimeRatio = 1 / now;
 
     for (const entry of this.entries.values()) {
-      const score = (entry.metadata.importance ?? 0.5) * (entry.metadata.timestamp * currentTimeRatio);
+      const score =
+        (entry.metadata.importance ?? 0.5) *
+        (entry.metadata.timestamp * currentTimeRatio);
 
       if (candidates.length < evictCount) {
         candidates.push({ entry, score });

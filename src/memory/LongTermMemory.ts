@@ -449,7 +449,12 @@ export class LongTermMemory {
   /**
    * Embedding キャッシュの統計を返す（デバッグ・チューニング用）
    */
-  getCacheStats(): { size: number; hits: number; misses: number; hitRate: number } {
+  getCacheStats(): {
+    size: number;
+    hits: number;
+    misses: number;
+    hitRate: number;
+  } {
     const total = this.embeddingCacheHits + this.embeddingCacheMisses;
     return {
       size: this.embeddingCache.size,
