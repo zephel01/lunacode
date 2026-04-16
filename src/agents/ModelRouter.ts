@@ -63,9 +63,7 @@ export class ModelRouter {
 
   /** 高度ルーティングが有効かどうか */
   isAdvancedRoutingEnabled(): boolean {
-    return (
-      this.routingConfig?.enabled === true && this.providerPool.size > 0
-    );
+    return this.routingConfig?.enabled === true && this.providerPool.size > 0;
   }
 
   // ── プロバイダー選択 ────────────────────────────────────────────────────────
