@@ -30,7 +30,7 @@ describe("Phase 20: MultiFileEditTool", () => {
 
     it("デフォルトツールが13個登録されている", () => {
       const registry = new ToolRegistry();
-      expect(registry.getAll().length).toBe(13);
+      expect(registry.getAll().length).toBe(14);
     });
   });
 
