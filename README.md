@@ -136,7 +136,7 @@ lunacode dream run                  # メモリ統合（ドリームモード）
 lunacode buddy info                 # コンパニオンAI情報
 
 # テスト
-bun test                            # 自動テスト実行（471テスト）
+bun test                            # 自動テスト実行（566テスト）
 ```
 
 ## 設定

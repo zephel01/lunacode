@@ -8,6 +8,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 次期バージョンで予定している変更はありません。
 
+## [1.1.0] - 2026-04-16
+
+### Added
+
+**SWE-bench 対応（Phase 18・20・21）**
+- **Phase 21 Complete**: テスト実行ツール `run_tests`（TestRunnerTool）を追加
+  - pytest / unittest / jest / vitest / bun / go test / cargo test / make の 8 フレームワークに対応
+  - `pytest.ini` / `bun.lockb` / `go.mod` / `Cargo.toml` / `package.json` を検出してフレームワークを自動判定
+  - 構造化出力: total / passed / failed / errors / skipped / failedTests[] / duration
+  - パスインジェクション・env キー不正検証などのセキュリティバリデーション
+  - タイムアウト制御（1〜600 秒）、出力 200 行切り詰め
+  - テスト: 30 pass（ToolRegistry 統合、フレームワーク自動検出、パーサ、バリデーション、SWE-bench ワークフローシナリオ）
+- **Phase 20 Complete**: マルチファイル同時編集ツール `multi_file_edit`（MultiFileEditTool）
+  - 全ファイルをアトミックに編集し、失敗時はロールバック
+  - dry_run モードで事前検証、最大 50 ファイル、新規作成・置換・上書きに対応
+  - テスト: 27 pass
+- **Phase 18 Complete**: Git ツール強化（git_status / git_diff / git_commit / git_apply / git_log）
+  - パラメータ単位の入力制限・危険操作ブロック・構造化出力
+  - テスト: 41 pass
+
+### Changed
+
+- コアツール数: 7 → 15（Phase 18・20・21 で 8 ツール追加）
+- テスト総数: 536 → 566 pass
+
 ## [1.0.0] - 2026-04-10
 
 ### Added
