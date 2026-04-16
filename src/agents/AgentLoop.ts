@@ -25,6 +25,7 @@ import { SubAgentTool } from "../tools/SubAgentTool.js";
 import { CheckpointManager } from "./CheckpointManager.js";
 import { ApprovalManager } from "./ApprovalManager.js";
 import { MCPClientManager } from "../mcp/MCPClientManager.js";
+import { AutoGitWorkflow } from "./AutoGitWorkflow.js";
 
 export class AgentLoop {
   private toolRegistry: ToolRegistry;
@@ -56,6 +57,8 @@ export class AgentLoop {
   private approvalManager?: ApprovalManager;
   // Phase 9: MCP
   private mcpManager?: MCPClientManager;
+  // 自動 Git ワークフロー
+  private autoGitWorkflow?: AutoGitWorkflow;
   // 長期メモリ（ベクトル検索）
   private longTermMemory?: LongTermMemory;
   // 現在のセッション ID（長期メモリのタグ付けに使用）
@@ -212,6 +215,41 @@ export class AgentLoop {
         }
       } catch (error) {
         console.warn("⚠️ Failed to initialize MCP:", error);
+      }
+    }
+
+    // 自動 Git ワークフロー初期化（サブエージェントではスキップ）
+    if (!this.isSubAgent) {
+      try {
+        const autoGitConfig = this.configManager.get("autoGit") as
+          | import("../types/index.js").AutoGitConfig
+          | undefined;
+        if (autoGitConfig?.enabled) {
+          this.autoGitWorkflow = AutoGitWorkflow.fromConfig(
+            this.basePath,
+            autoGitConfig,
+            this.llmProvider,
+          );
+          // task:complete フックとして登録
+          this.hookManager.register({
+            name: "auto-git-workflow",
+            event: "task:complete",
+            handler: async (ctx) => {
+              if (!this.autoGitWorkflow) return;
+              const taskSummary =
+                (ctx.toolArgs?.taskSummary as string | undefined) ??
+                "agent task";
+              const result = await this.autoGitWorkflow.run(taskSummary);
+              console.log(AutoGitWorkflow.formatResult(result));
+            },
+            priority: 200,
+          });
+          console.log(
+            `🔀 AutoGitWorkflow enabled (mode: ${autoGitConfig.mode ?? "commit-and-test"})`,
+          );
+        }
+      } catch (error) {
+        console.warn("⚠️ Failed to initialize AutoGitWorkflow:", error);
       }
     }
 
@@ -868,6 +906,19 @@ Do NOT explain. Actually call the tool now.`;
       iteration: this.state.iteration,
     });
 
+    // タスク完了フック（AutoGitWorkflow などが listen する）
+    if (!this.isSubAgent) {
+      // 最後のユーザーメッセージをタスクの概要として渡す
+      const lastUserMsg = [...this.messages]
+        .reverse()
+        .find((m) => m.role === "user");
+      const taskSummary = (lastUserMsg?.content ?? "agent task").slice(0, 200);
+      await this.hookManager.emit("task:complete", {
+        iteration: this.state.iteration,
+        toolArgs: { taskSummary },
+      });
+    }
+
     // メモリ圧縮を実行（Phase 1の最適化）
     await this.memorySystem.microCompact();
 
@@ -927,6 +978,10 @@ Do NOT explain. Actually call the tool now.`;
 
   getMCPManager(): MCPClientManager | undefined {
     return this.mcpManager;
+  }
+
+  getAutoGitWorkflow(): AutoGitWorkflow | undefined {
+    return this.autoGitWorkflow;
   }
 
   async cleanup(): Promise<void> {

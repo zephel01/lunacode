@@ -38,5 +38,21 @@
   "daemon": {
     "enabled": false,
     "tickIntervalSeconds": 60
+  },
+  "autoGit": {
+    "enabled": false,
+    "mode": "commit-and-test",
+    "testCommand": "bun test",
+    "createPROnTestFailure": false,
+    "draftPR": true,
+    "baseBranch": "main",
+    "commitPrefix": "",
+    "includePatterns": [],
+    "excludePatterns": ["*.log", "node_modules/**", ".kairos/**"],
+    "hooks": {
+      "preCommit": "",
+      "postCommit": "",
+      "postPR": ""
+    }
   }
 }

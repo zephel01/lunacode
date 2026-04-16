@@ -314,6 +314,7 @@ export interface StreamCallbacks {
 export type HookEvent =
   | "session:start"
   | "session:end"
+  | "task:complete"
   | "tool:before"
   | "tool:after"
   | "tool:error"
@@ -576,4 +577,91 @@ export interface PipelineResult {
   totalDurationMs: number;
   coderIterations: number; // Coderが何回実行されたか
   error?: string;
+}
+
+// ========================================
+// 自動 Git ワークフロー
+// ========================================
+
+/**
+ * ワークフローの動作モード
+ *
+ * - "commit-only"       : コミットのみ（テスト・PR スキップ）
+ * - "commit-and-test"   : コミット後にテスト実行
+ * - "full"              : コミット → テスト → PR ドラフト作成
+ */
+export type AutoGitWorkflowMode = "commit-only" | "commit-and-test" | "full";
+
+/**
+ * .kairos/config.json の "autoGit" セクション
+ * （ConfigManager 経由で読み込まれる）
+ */
+export interface AutoGitConfig {
+  /** ワークフローを有効化するか（デフォルト: false）*/
+  enabled?: boolean;
+  /** 動作モード（デフォルト: "commit-and-test"）*/
+  mode?: AutoGitWorkflowMode;
+  /** コミット後に実行するテストコマンド（デフォルト: "bun test"）*/
+  testCommand?: string;
+  /** テスト失敗時でも PR を作成するか（デフォルト: false）*/
+  createPROnTestFailure?: boolean;
+  /** PR をドラフトとして作成するか（デフォルト: true）*/
+  draftPR?: boolean;
+  /** PR のベースブランチ（デフォルト: "main"）*/
+  baseBranch?: string;
+  /** PR テンプレート文字列。未指定時は自動生成 */
+  prTemplate?: string;
+  /** コミットメッセージプレフィックス（例: "feat: "）*/
+  commitPrefix?: string;
+  /** ステージングするファイルのパターン（デフォルト: 全変更ファイル）*/
+  includePatterns?: string[];
+  /** ステージングから除外するファイルパターン */
+  excludePatterns?: string[];
+  /** コミット前後に実行するシェルコマンド */
+  hooks?: {
+    preCommit?: string;
+    postCommit?: string;
+    postPR?: string;
+  };
+}
+
+/** git commit の実行結果 */
+export interface CommitResult {
+  status: "success" | "failed" | "nothing-to-commit";
+  commitHash?: string;
+  commitMessage?: string;
+  filesChanged: string[];
+  error?: string;
+}
+
+/** テスト実行の結果 */
+export interface TestRunResult {
+  status: "passed" | "failed" | "skipped" | "error";
+  command: string;
+  output: string;
+  durationMs: number;
+  passCount?: number;
+  failCount?: number;
+  error?: string;
+}
+
+/** GitHub PR 作成の結果 */
+export interface PRResult {
+  status: "created" | "failed" | "skipped";
+  url?: string;
+  prNumber?: number;
+  title?: string;
+  isDraft?: boolean;
+  fallbackInstructions?: string; // gh CLI が使えない時のマニュアル手順
+  error?: string;
+}
+
+/** AutoGitWorkflow.run() の全体結果 */
+export interface AutoGitWorkflowResult {
+  status: "success" | "failed" | "partial";
+  commit?: CommitResult;
+  tests?: TestRunResult;
+  pr?: PRResult;
+  totalDurationMs: number;
+  summary: string; // 人間が読めるサマリー
 }
