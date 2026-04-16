@@ -8,6 +8,13 @@ import {
   GrepTool,
   GitTool,
 } from "./BasicTools.js";
+import {
+  GitStatusTool,
+  GitDiffTool,
+  GitCommitTool,
+  GitApplyTool,
+  GitLogTool,
+} from "./GitTools.js";
 
 export class ToolRegistry {
   private tools: Map<string, Tool>;
@@ -25,6 +32,13 @@ export class ToolRegistry {
     this.register(new GlobTool());
     this.register(new GrepTool());
     this.register(new GitTool());
+
+    // Phase 18: Git ツール強化
+    this.register(new GitStatusTool());
+    this.register(new GitDiffTool());
+    this.register(new GitCommitTool());
+    this.register(new GitApplyTool());
+    this.register(new GitLogTool());
   }
 
   register(tool: Tool): void {

@@ -28,7 +28,12 @@ describe("ToolRegistry", () => {
     expect(names).toContain("glob");
     expect(names).toContain("grep");
     expect(names).toContain("git");
-    expect(tools.length).toBe(7);
+    expect(names).toContain("git_status");
+    expect(names).toContain("git_diff");
+    expect(names).toContain("git_commit");
+    expect(names).toContain("git_apply");
+    expect(names).toContain("git_log");
+    expect(tools.length).toBe(12);
   });
 
   test("ツール説明文が生成される", () => {
