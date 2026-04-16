@@ -39,6 +39,17 @@
     "enabled": false,
     "tickIntervalSeconds": 60
   },
+  "mcp": {
+    "servers": [
+      {
+        "name": "mcp-wrapper",
+        "transport": "stdio",
+        "command": "${MCP_WRAPPER_PYTHON}",
+        "args": ["${MCP_WRAPPER_SERVER}"],
+        "env": {}
+      }
+    ]
+  },
   "autoGit": {
     "enabled": false,
     "mode": "commit-and-test",

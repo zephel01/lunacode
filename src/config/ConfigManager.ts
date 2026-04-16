@@ -152,7 +152,7 @@ export class ConfigManager {
   async load(): Promise<LunaCodeConfig> {
     try {
       const content = await fs.readFile(this.configPath, "utf-8");
-      const loaded = JSON.parse(content);
+      const loaded = this.expandEnvVars(JSON.parse(content));
       this.config = this.deepMerge(this.config, loaded);
       this.configLoaded = true;
       console.log(`✅ Configuration loaded from ${this.configPath}`);
@@ -165,6 +165,35 @@ export class ConfigManager {
       );
       return this.config;
     }
+  }
+
+  /**
+   * JSON オブジェクト内の文字列値に含まれる ${VAR} / $VAR を環境変数で展開する。
+   * 対応環境変数が未定義の場合はそのまま残す。
+   */
+  private expandEnvVars<T>(value: T): T {
+    if (typeof value === "string") {
+      return value.replace(
+        /\$\{([^}]+)\}|\$([A-Z_][A-Z0-9_]*)/g,
+        (_match, braced: string | undefined, bare: string | undefined) => {
+          const name = braced ?? bare ?? "";
+          return process.env[name] ?? _match;
+        },
+      ) as T;
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => this.expandEnvVars(item)) as T;
+    }
+    if (value !== null && typeof value === "object") {
+      const result: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        result[k] = this.expandEnvVars(v);
+      }
+      return result as T;
+    }
+    return value;
   }
 
   async save(): Promise<void> {
