@@ -69,10 +69,10 @@ describe("Phase 18: Git Tools", () => {
       expect(registry.get("git")).toBeDefined();
     });
 
-    test("should have 12 total default tools", () => {
+    test("should have 13 total default tools", () => {
       const registry = new ToolRegistry();
-      // 7 original + 5 new git tools
-      expect(registry.getAll().length).toBe(12);
+      // 7 original + 5 git tools + 1 multi_file_edit
+      expect(registry.getAll().length).toBe(13);
     });
   });
 

@@ -33,7 +33,8 @@ describe("ToolRegistry", () => {
     expect(names).toContain("git_commit");
     expect(names).toContain("git_apply");
     expect(names).toContain("git_log");
-    expect(tools.length).toBe(12);
+    expect(names).toContain("multi_file_edit");
+    expect(tools.length).toBe(13);
   });
 
   test("ツール説明文が生成される", () => {

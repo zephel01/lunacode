@@ -15,6 +15,7 @@ import {
   GitApplyTool,
   GitLogTool,
 } from "./GitTools.js";
+import { MultiFileEditTool } from "./MultiFileEditTool.js";
 
 export class ToolRegistry {
   private tools: Map<string, Tool>;
@@ -32,6 +33,9 @@ export class ToolRegistry {
     this.register(new GlobTool());
     this.register(new GrepTool());
     this.register(new GitTool());
+
+    // Phase 20: マルチファイル同時編集
+    this.register(new MultiFileEditTool());
 
     // Phase 18: Git ツール強化
     this.register(new GitStatusTool());
