@@ -186,9 +186,7 @@ export class ConfigManager {
     }
     if (value !== null && typeof value === "object") {
       const result: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(
-        value as Record<string, unknown>,
-      )) {
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
         result[k] = this.expandEnvVars(v);
       }
       return result as T;
