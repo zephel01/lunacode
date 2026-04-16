@@ -29,6 +29,8 @@ import { AutoGitWorkflow } from "./AutoGitWorkflow.js";
 import { SelfEvaluator } from "./SelfEvaluator.js";
 import { ModelRouter } from "./ModelRouter.js";
 import { LLMProviderFactory } from "../providers/LLMProviderFactory.js";
+import { Logger } from "../utils/Logger.js";
+import type { LoggingConfig } from "../utils/Logger.js";
 
 export class AgentLoop {
   private toolRegistry: ToolRegistry;
@@ -66,6 +68,8 @@ export class AgentLoop {
   private selfEvaluator?: SelfEvaluator;
   // Phase 15: モデルルーティング高度化
   private modelRouter?: ModelRouter;
+  // 構造化ロガー（Phase 16: pino）
+  private log = Logger.get("AgentLoop");
   // 長期メモリ（ベクトル検索）
   private longTermMemory?: LongTermMemory;
   // 現在のセッション ID（長期メモリのタグ付けに使用）
@@ -109,6 +113,13 @@ export class AgentLoop {
     await this.configManager.load();
     await this.skillLoader.loadAll();
 
+    // Phase 16: 構造化ロガーの初期化
+    const loggingConfig = this.configManager.get("logging") as
+      | LoggingConfig
+      | undefined;
+    Logger.configure(loggingConfig ?? {});
+    this.log = Logger.get("AgentLoop");
+
     // Phase 2: コンテキストウィンドウ管理の初期化
     try {
       const modelName = this.llmProvider.getDefaultModel();
@@ -121,20 +132,20 @@ export class AgentLoop {
         ollamaBaseUrl,
       );
       this.contextManager = new ContextManager(modelInfo);
-      console.log(
+      this.log.info(
         `📐 Context window: ${modelInfo.contextLength} tokens (${modelName})`,
       );
     } catch (error) {
-      console.warn("⚠️ Failed to initialize context manager:", error);
+      this.log.warn({ err: error }, "Failed to initialize context manager");
     }
 
     // Phase 7: ファイルベースのフックをロード
     try {
       const fileLoader = new FileHookLoader();
       const hookCount = await fileLoader.load(this.basePath, this.hookManager);
-      if (hookCount > 0) console.log(`🪝 Loaded ${hookCount} hook(s)`);
+      if (hookCount > 0) this.log.info(`🪝 Loaded ${hookCount} hook(s)`);
     } catch (error) {
-      console.warn("⚠️ Failed to load hooks:", error);
+      this.log.warn({ err: error }, "Failed to load hooks");
     }
 
     // Phase 8: サブエージェントの初期化（サブエージェント自身には delegate_task を登録しない）
@@ -144,7 +155,7 @@ export class AgentLoop {
         this.basePath,
       );
       this.toolRegistry.register(new SubAgentTool(this.subAgentManager));
-      console.log("🚀 Sub-agent delegation enabled (delegate_task tool)");
+      this.log.info("🚀 Sub-agent delegation enabled (delegate_task tool)");
     }
 
     // Phase 5: チェックポイント管理の初期化（サブエージェントではスキップ）
@@ -161,10 +172,13 @@ export class AgentLoop {
             checkpointConfig,
           );
           await this.checkpointManager.initialize();
-          console.log("💾 Checkpoint system enabled");
+          this.log.info("💾 Checkpoint system enabled");
         }
       } catch (error) {
-        console.warn("⚠️ Failed to initialize checkpoint manager:", error);
+        this.log.warn(
+          { err: error },
+          "Failed to initialize checkpoint manager",
+        );
       }
     }
 
@@ -193,18 +207,18 @@ export class AgentLoop {
             {
               requestApproval: async (request) => {
                 // デフォルト: auto-approve（CLI統合時にコールバックを差し替え）
-                console.log(`🔍 Approval request: ${request.description}`);
-                if (request.diff) console.log(request.diff);
+                this.log.info(`🔍 Approval request: ${request.description}`);
+                if (request.diff) this.log.info(request.diff);
                 return { result: "approved" as const };
               },
             },
           );
-          console.log(
+          this.log.info(
             `✅ Approval flow enabled (mode: ${approvalConfig.mode})`,
           );
         }
       } catch (error) {
-        console.warn("⚠️ Failed to initialize approval manager:", error);
+        this.log.warn({ err: error }, "Failed to initialize approval manager");
       }
     }
 
@@ -221,7 +235,7 @@ export class AgentLoop {
           );
         }
       } catch (error) {
-        console.warn("⚠️ Failed to initialize MCP:", error);
+        this.log.warn({ err: error }, "Failed to initialize MCP");
       }
     }
 
@@ -247,16 +261,16 @@ export class AgentLoop {
                 (ctx.toolArgs?.taskSummary as string | undefined) ??
                 "agent task";
               const result = await this.autoGitWorkflow.run(taskSummary);
-              console.log(AutoGitWorkflow.formatResult(result));
+              this.log.info(AutoGitWorkflow.formatResult(result));
             },
             priority: 200,
           });
-          console.log(
+          this.log.info(
             `🔀 AutoGitWorkflow enabled (mode: ${autoGitConfig.mode ?? "commit-and-test"})`,
           );
         }
       } catch (error) {
-        console.warn("⚠️ Failed to initialize AutoGitWorkflow:", error);
+        this.log.warn({ err: error }, "Failed to initialize AutoGitWorkflow");
       }
     }
 
@@ -271,12 +285,12 @@ export class AgentLoop {
             .llmProvider as import("../providers/LLMProvider.js").ILLMProvider,
           selfEvalConfig,
         );
-        console.log(
+        this.log.info(
           `🔍 SelfEvaluator enabled (threshold: ${selfEvalConfig.scoreThreshold ?? 7}, maxRounds: ${selfEvalConfig.maxRounds ?? 2})`,
         );
       }
     } catch (error) {
-      console.warn("⚠️ Failed to initialize SelfEvaluator:", error);
+      this.log.warn({ err: error }, "Failed to initialize SelfEvaluator");
     }
 
     // Phase 15: モデルルーティング高度化の初期化
@@ -325,22 +339,22 @@ export class AgentLoop {
             const provider = LLMProviderFactory.createProvider(providerConfig);
             providerPool.set(name, provider);
           } catch (providerError) {
-            console.warn(
-              `⚠️ Failed to create provider '${name}' for routing:`,
-              providerError,
+            this.log.warn(
+              { err: providerError, provider: name },
+              "Failed to create provider for routing",
             );
           }
         }
 
         if (providerPool.size > 0) {
           this.modelRouter.enableAdvancedRouting(routingConfig, providerPool);
-          console.log(
+          this.log.info(
             `🧭 Advanced routing enabled (${providerPool.size} provider(s), ${(routingConfig.rules ?? []).length} rule(s), fallback: [${(routingConfig.fallbackChain ?? []).join(" → ")}])`,
           );
         }
       }
     } catch (error) {
-      console.warn("⚠️ Failed to initialize ModelRouter:", error);
+      this.log.warn({ err: error }, "Failed to initialize ModelRouter");
     }
 
     // 長期メモリ（ベクトル検索）の初期化
@@ -360,17 +374,17 @@ export class AgentLoop {
       });
       await this.longTermMemory.initialize();
       const stats = this.longTermMemory.getStats();
-      console.log(
+      this.log.info(
         `🧠 Long-term memory enabled | provider: ${this.longTermMemory.getEmbeddingProviderName()} | entries: ${stats.totalEntries}`,
       );
     } catch (error) {
-      console.warn("⚠️ Failed to initialize long-term memory:", error);
+      this.log.warn({ err: error }, "Failed to initialize long-term memory");
     }
 
     // サブエージェントの場合、許可されたツールのみにフィルタリング
     if (this.isSubAgent && this.allowedTools) {
       this.toolRegistry.filterByAllowed(this.allowedTools);
-      console.log(
+      this.log.info(
         `🔒 Sub-agent tool restriction: [${this.allowedTools.join(", ")}]`,
       );
     }
@@ -449,7 +463,7 @@ export class AgentLoop {
         )
       ) {
         this.activeSkills.push(match.skill);
-        console.log(
+        this.log.info(
           `🎯 Auto-detected skill: ${match.skill.manifest.name} (triggers: ${match.matchedTriggers.join(", ")})`,
         );
 
@@ -656,7 +670,7 @@ When you have enough information or the task is complete, provide a clear, conci
               currentProvider.getType(),
             );
             if (nextProvider) {
-              console.log(
+              this.log.info(
                 `🔄 LLM call failed (${currentProvider.getType()}), falling back to ${nextProvider.getType()}`,
               );
               currentProvider = nextProvider;
@@ -668,10 +682,13 @@ When you have enough information or the task is complete, provide a clear, conci
         }
 
         // デバッグ: LLMレスポンスをログ
-        console.log(
-          `\n[DEBUG] LLM Response - Content: ${assistantContent?.substring(0, 100) || "(empty)"}...`,
+        this.log.debug(
+          {
+            contentPreview: assistantContent?.substring(0, 100) || "(empty)",
+            toolCallCount: toolCalls.length || 0,
+          },
+          "LLM response received",
         );
-        console.log(`[DEBUG] Tool calls detected: ${toolCalls.length || 0}`);
 
         this.messages.push({
           role: "assistant",
@@ -699,7 +716,7 @@ When you have enough information or the task is complete, provide a clear, conci
             (k) => k === toolCallKey,
           ).length;
           if (duplicateCount >= this.DUPLICATE_TOOL_THRESHOLD) {
-            console.log(
+            this.log.info(
               `[DEBUG] ⚠️ Duplicate tool call detected (${duplicateCount}x): ${toolCallKey.substring(0, 100)}. Breaking loop.`,
             );
             this.messages.push({
@@ -716,16 +733,16 @@ When you have enough information or the task is complete, provide a clear, conci
               this.state.action = toolCall.function.name;
               this.state.thought = assistantContent || "";
 
-              console.log(`\n🤖 ${this.state.thought}`);
-              console.log(`🔧 Executing: ${toolCall.function.name}`);
+              this.log.info(`\n🤖 ${this.state.thought}`);
+              this.log.info(`🔧 Executing: ${toolCall.function.name}`);
 
               let parsedArgs: Record<string, unknown>;
               try {
                 parsedArgs = JSON.parse(toolCall.function.arguments);
               } catch (parseError) {
-                console.error(
-                  `Failed to parse tool arguments for ${toolCall.function.name}:`,
-                  parseError,
+                this.log.error(
+                  { err: parseError, tool: toolCall.function.name },
+                  "Failed to parse tool arguments",
                 );
                 this.messages.push({
                   role: "tool",
@@ -735,7 +752,7 @@ When you have enough information or the task is complete, provide a clear, conci
                 continue;
               }
 
-              console.log(
+              this.log.info(
                 `[DEBUG] Executing tool with args: ${JSON.stringify(parsedArgs)}`,
               );
 
@@ -814,10 +831,10 @@ When you have enough information or the task is complete, provide a clear, conci
                 ? toolResult.output
                 : toolResult.error || "Error";
 
-              console.log(
+              this.log.info(
                 `[DEBUG] Tool result - Success: ${toolResult.success}, Output length: ${this.state.observation.length}`,
               );
-              console.log(
+              this.log.info(
                 `📊 Observation: ${this.state.observation.substring(0, 200)}...`,
               );
 
@@ -905,7 +922,7 @@ When you have enough information or the task is complete, provide a clear, conci
                     sections.push(sm[1] || sm[2]);
                   }
                   if (sections.length > 0) {
-                    console.log(
+                    this.log.info(
                       `[DEBUG] 🏗️ Skeleton detected in ${filePath} — unfilled sections: ${sections.join(", ")}`,
                     );
                     const sectionList = sections
@@ -980,7 +997,7 @@ Replace each placeholder with the REAL, COMPLETE implementation code. Do NOT lea
 
             if (claimsFileExists && this.retryCount === 1) {
               // ハリネズミ専用メッセージ: glob で実際に確認させる
-              console.log(
+              this.log.info(
                 `[DEBUG] ⚠️ Hallucination detected — model claims files exist without verification. Forcing glob check.`,
               );
               retryMessage = `STOP. You claimed files exist or tasks are complete, but you used NO tools to verify this.
@@ -990,7 +1007,7 @@ You MUST use glob to check what files actually exist right now before responding
 </tool_call>`;
             } else if (isFirstIteration && this.retryCount === 1) {
               // 初回イテレーション: タスクに必要なツールを使わせる
-              console.log(
+              this.log.info(
                 `[DEBUG] ⚠️ No tool calls on first iteration. Forcing tool use.`,
               );
               retryMessage = `You did not use any tools. The task requires you to use tools — DO NOT answer from memory.
@@ -1000,7 +1017,7 @@ First, check what files exist in the project:
 </tool_call>`;
             } else {
               // 通常リトライ: 書式例を提示
-              console.log(
+              this.log.info(
                 `[DEBUG] ⚠️ No tool calls detected. Retry ${this.retryCount}/${this.maxRetries} with stronger prompt`,
               );
               retryMessage = `You did not use any tools. You MUST respond with a tool call.
@@ -1022,7 +1039,7 @@ Do NOT explain. Actually call the tool now.`;
           break;
         }
       } catch (error) {
-        console.error("Error in agent loop:", error);
+        this.log.error({ err: error }, "Error in agent loop");
         this.state.phase = "ERROR";
         response = `An error occurred: ${error instanceof Error ? error.message : String(error)}`;
         break;
@@ -1045,11 +1062,11 @@ Do NOT explain. Actually call the tool now.`;
           this.isSubAgent,
         );
         if (!evalResult.skipped) {
-          console.log(SelfEvaluator.formatResult(evalResult));
+          this.log.info(SelfEvaluator.formatResult(evalResult));
         }
         response = evalResult.finalResponse;
       } catch (error) {
-        console.warn("⚠️ SelfEvaluator failed:", error);
+        this.log.warn({ err: error }, "SelfEvaluator failed");
       }
     }
 
