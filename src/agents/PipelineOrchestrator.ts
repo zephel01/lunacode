@@ -247,8 +247,6 @@ export class PipelineOrchestrator {
     this.config.onStageStart(role, iteration);
 
     const task = this.buildStageTask(role, context, iteration);
-    const stageStart = Date.now();
-
     const result = await this.subAgentManager.spawn({
       role,
       task,

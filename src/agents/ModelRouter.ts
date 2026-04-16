@@ -7,7 +7,7 @@
 
 import { ILLMProvider, LLMProviderType } from "../providers/LLMProvider.js";
 import { TaskClassifier, ClassificationResult } from "./TaskClassifier.js";
-import type { RoutingConfig, RoutingRule, TaskType } from "../types/index.js";
+import type { RoutingConfig, RoutingRule } from "../types/index.js";
 
 // ── Phase 4（既存）型定義 ────────────────────────────────────────────────────
 

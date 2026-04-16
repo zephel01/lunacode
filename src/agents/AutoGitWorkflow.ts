@@ -17,7 +17,6 @@
  */
 
 import { execSync, spawn } from "child_process";
-import * as path from "path";
 import { ILLMProvider } from "../providers/LLMProvider.js";
 import {
   AutoGitConfig,
