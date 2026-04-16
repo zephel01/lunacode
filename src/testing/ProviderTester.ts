@@ -24,6 +24,12 @@ import { ToolRegistry } from "../tools/ToolRegistry.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
+import { fileURLToPath } from "url";
+
+// LunaCode のインストールディレクトリ（src/testing/ の2階層上）
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const LUNACODE_ROOT = path.resolve(__dirname, "../../");
 
 export interface TestResult {
   name: string;
@@ -60,6 +66,7 @@ export class ProviderTester {
   private configManager: ConfigManager;
   private results: TestResult[] = [];
   private tempDir: string = "";
+  private nativeToolCallingSupported: boolean = false;
 
   constructor(
     provider: ILLMProvider,
@@ -347,6 +354,7 @@ export class ProviderTester {
       const hasNativeToolCalls = toolCalls && toolCalls.length > 0;
 
       if (hasNativeToolCalls) {
+        this.nativeToolCallingSupported = true;
         this.addResult({
           name: "ネイティブ Tool Calling",
           category: "ツール呼び出し",
@@ -383,6 +391,19 @@ export class ProviderTester {
 
   private async testTextExtractionFallback(): Promise<void> {
     const start = Date.now();
+
+    // ネイティブ Tool Calling 対応モデルはテキスト抽出フォールバックを使わないため skip
+    if (this.nativeToolCallingSupported) {
+      this.addResult({
+        name: "テキスト抽出フォールバック",
+        category: "ツール呼び出し",
+        status: "skip",
+        durationMs: 0,
+        message: "ネイティブ Tool Calling 対応のためスキップ",
+      });
+      return;
+    }
+
     try {
       // テキスト抽出モード: ツール指示をシステムプロンプトに含めて直接テスト
       const request: ChatCompletionRequest = {
@@ -442,6 +463,7 @@ Available tools:
       const registry = new ToolRegistry();
       const result = await registry.executeTool("glob", {
         pattern: "src/**/*.ts",
+        path: LUNACODE_ROOT,
       });
       const fileCount = result.output
         ? result.output.split("\n").filter((l: string) => l.trim()).length
@@ -472,7 +494,7 @@ Available tools:
     try {
       const registry = new ToolRegistry();
       const result = await registry.executeTool("read_file", {
-        path: "package.json",
+        path: path.join(LUNACODE_ROOT, "package.json"),
       });
 
       this.addResult({
@@ -538,7 +560,7 @@ Available tools:
       const registry = new ToolRegistry();
       const result = await registry.executeTool("grep", {
         pattern: "export class",
-        path: "src/agents/AgentLoop.ts",
+        path: path.join(LUNACODE_ROOT, "src/agents/AgentLoop.ts"),
       });
 
       this.addResult({
