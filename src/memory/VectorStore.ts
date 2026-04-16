@@ -66,6 +66,8 @@ export class VectorStore {
         () => this.saveIfDirty(),
         config.autoSaveIntervalMs,
       );
+      // W2-5: イベントループを引き留めないように unref() を呼ぶ
+      this.autoSaveTimer.unref?.();
     }
   }
 
@@ -170,6 +172,7 @@ export class VectorStore {
 
   /**
    * クエリベクトルに対して上位 K 件を返す（コサイン類似度）
+   * Top-K 管理に min-heap 的なアプローチを使用し、計算量を O(n log K) に抑える
    */
   search(
     queryEmbedding: number[],
@@ -184,13 +187,30 @@ export class VectorStore {
 
       const similarity = cosineSimilarity(queryEmbedding, entry.embedding);
       if (similarity >= this.minSimilarity) {
-        results.push({ entry, similarity });
+        // Top-K 管理: 最小類似度の要素を保持しつつ、より高い類似度のものを追加
+        if (results.length < topK) {
+          results.push({ entry, similarity });
+        } else {
+          // 現在の topK 内の最小類似度を見つけて置換
+          let minIdx = 0;
+          let minSim = results[0].similarity;
+          for (let i = 1; i < results.length; i++) {
+            if (results[i].similarity < minSim) {
+              minIdx = i;
+              minSim = results[i].similarity;
+            }
+          }
+          // 新しい類似度が最小より高ければ置換
+          if (similarity > minSim) {
+            results[minIdx] = { entry, similarity };
+          }
+        }
       }
     }
 
-    // 類似度降順でソートして Top-K を返す
+    // 最後に降順ソートして返す（topK が小さいので sort コストは低い）
     results.sort((a, b) => b.similarity - a.similarity);
-    return results.slice(0, topK);
+    return results;
   }
 
   /**
@@ -200,12 +220,14 @@ export class VectorStore {
     const lowerKeyword = keyword.toLowerCase();
     const results: VectorSearchResult[] = [];
 
+    // 正規表現の特殊文字をエスケープ（W2-4: キャッシュ + エスケープ）
+    const escapedKeyword = lowerKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const keywordRegex = new RegExp(escapedKeyword, "g");
+
     for (const entry of this.entries.values()) {
       if (entry.content.toLowerCase().includes(lowerKeyword)) {
-        // キーワード出現頻度で簡易スコアリング
-        const matches = (
-          entry.content.toLowerCase().match(new RegExp(lowerKeyword, "g")) ?? []
-        ).length;
+        // キーワード出現頻度で簡易スコアリング（キャッシュした正規表現を再利用）
+        const matches = (entry.content.toLowerCase().match(keywordRegex) ?? []).length;
         const similarity = Math.min(0.5 + matches * 0.1, 1.0);
         results.push({ entry, similarity });
       }
@@ -273,19 +295,34 @@ export class VectorStore {
   private evict(): void {
     // 重要度が低く古いエントリを削除（最大エントリ数の 10% を削除）
     const evictCount = Math.max(1, Math.floor(this.maxEntries * 0.1));
-    const candidates = Array.from(this.entries.values()).sort((a, b) => {
-      // 重要度 * 新しさ でスコアリング（低いものを先に削除）
-      const scoreA =
-        (a.metadata.importance ?? 0.5) * (a.metadata.timestamp / Date.now());
-      const scoreB =
-        (b.metadata.importance ?? 0.5) * (b.metadata.timestamp / Date.now());
-      return scoreA - scoreB;
-    });
+    const now = Date.now();
 
-    for (let i = 0; i < evictCount; i++) {
-      if (candidates[i]) {
-        this.entries.delete(candidates[i].id);
+    // インクリメンタル削除: 最低スコアの evictCount 個を O(n) で選定
+    const candidates: { entry: VectorMemoryEntry; score: number }[] = [];
+    const currentTimeRatio = 1 / now;
+
+    for (const entry of this.entries.values()) {
+      const score = (entry.metadata.importance ?? 0.5) * (entry.metadata.timestamp * currentTimeRatio);
+
+      if (candidates.length < evictCount) {
+        candidates.push({ entry, score });
+      } else {
+        // 現在の候補の最高スコアを探して置換
+        let maxIdx = 0;
+        for (let i = 1; i < candidates.length; i++) {
+          if (candidates[i].score > candidates[maxIdx].score) {
+            maxIdx = i;
+          }
+        }
+        if (score < candidates[maxIdx].score) {
+          candidates[maxIdx] = { entry, score };
+        }
       }
+    }
+
+    // 選定されたエントリを削除
+    for (const { entry } of candidates) {
+      this.entries.delete(entry.id);
     }
   }
 

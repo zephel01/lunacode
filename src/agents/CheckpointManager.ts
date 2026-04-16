@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { runGit } from "../utils/gitRunner.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -61,14 +61,14 @@ export class CheckpointManager {
       const gitPath = path.join(this.basePath, ".git");
       if (!fs.existsSync(gitPath)) {
         // Initialize git repo
-        this.executeGit("init");
+        await this.executeGitAsync(["init"]);
         // Set up initial commit
         try {
-          this.executeGit('config user.email "checkpoint@lunacode.local"');
-          this.executeGit('config user.name "LunaCode Checkpoint"');
+          await this.executeGitAsync(["config", "user.email", "checkpoint@lunacode.local"]);
+          await this.executeGitAsync(["config", "user.name", "LunaCode Checkpoint"]);
           // Create initial commit
-          this.executeGit("add -A");
-          this.executeGit('commit -m "Initial checkpoint" --allow-empty');
+          await this.executeGitAsync(["add", "-A"]);
+          await this.executeGitAsync(["commit", "-m", "Initial checkpoint", "--allow-empty"]);
         } catch (e) {
           // Ignore initial setup errors
         }
@@ -76,8 +76,8 @@ export class CheckpointManager {
 
       // Get current branch for restoration later
       try {
-        this.originalBranch = this.executeGit(
-          "rev-parse --abbrev-ref HEAD",
+        this.originalBranch = (
+          await this.executeGitAsync(["rev-parse", "--abbrev-ref", "HEAD"])
         ).trim();
       } catch (e) {
         this.originalBranch = "main";
@@ -88,14 +88,14 @@ export class CheckpointManager {
         const sessionTimestamp = Date.now();
         this.sessionBranch = `lunacode/session-${sessionTimestamp}`;
         try {
-          this.executeGit(`checkout -b ${this.sessionBranch}`);
+          await this.executeGitAsync(["checkout", "-b", this.sessionBranch]);
         } catch (e) {
           // Branch might already exist, try to checkout
           try {
-            this.executeGit(`checkout ${this.sessionBranch}`);
+            await this.executeGitAsync(["checkout", this.sessionBranch]);
           } catch (e2) {
             // Create it from current branch
-            this.executeGit(`checkout -b ${this.sessionBranch}`);
+            await this.executeGitAsync(["checkout", "-b", this.sessionBranch]);
           }
         }
       }
@@ -118,7 +118,7 @@ export class CheckpointManager {
 
     try {
       // Check if there are changes
-      const status = this.executeGit("status --porcelain");
+      const status = await this.executeGitAsync(["status", "--porcelain"]);
       if (!status.trim()) {
         // No changes, skip checkpoint
         return null;
@@ -130,17 +130,23 @@ export class CheckpointManager {
       const checkpointId = `cp-${iteration}-${timestamp}`;
 
       // Stage and commit all changes
-      this.executeGit("add -A");
+      await this.executeGitAsync(["add", "-A"]);
       const commitMsg = `${checkpointId}: ${description}`;
-      this.executeGit(`commit --no-verify -m "${commitMsg}"`);
+      await this.executeGitAsync(["commit", "--no-verify", "-m", commitMsg]);
 
       // Get commit hash
-      const commitHash = this.executeGit("rev-parse HEAD").trim();
+      const commitHash = (
+        await this.executeGitAsync(["rev-parse", "HEAD"])
+      ).trim();
 
       // Get list of changed files
-      const diffOutput = this.executeGit(
-        `diff-tree --no-commit-id --name-only -r ${commitHash}`,
-      );
+      const diffOutput = await this.executeGitAsync([
+        "diff-tree",
+        "--no-commit-id",
+        "--name-only",
+        "-r",
+        commitHash,
+      ]);
       const filesChanged = diffOutput
         .trim()
         .split("\n")
@@ -187,7 +193,7 @@ export class CheckpointManager {
       }
 
       // Reset to checkpoint
-      this.executeGit(`reset --hard ${checkpoint.commitHash}`);
+      await this.executeGitAsync(["reset", "--hard", checkpoint.commitHash]);
 
       // Remove checkpoints after this one
       const checkpointIndex = this.checkpoints.findIndex(
@@ -214,7 +220,7 @@ export class CheckpointManager {
     try {
       // Restore to the last checkpoint's state
       const latestCheckpoint = this.checkpoints[this.checkpoints.length - 1];
-      this.executeGit(`reset --hard ${latestCheckpoint.commitHash}`);
+      await this.executeGitAsync(["reset", "--hard", latestCheckpoint.commitHash]);
       return true;
     } catch (e) {
       console.error("Failed to undo:", e);
@@ -232,7 +238,7 @@ export class CheckpointManager {
   /**
    * Get diff between two checkpoints
    */
-  diff(fromId: string, toId?: string): string {
+  async diff(fromId: string, toId?: string): Promise<string> {
     if (!this.config.enabled) {
       return "";
     }
@@ -252,7 +258,7 @@ export class CheckpointManager {
         toHash = toCheckpoint.commitHash;
       }
 
-      return this.executeGit(`diff ${fromCheckpoint.commitHash}..${toHash}`);
+      return await this.executeGitAsync(["diff", `${fromCheckpoint.commitHash}..${toHash}`]);
     } catch (e) {
       console.error("Failed to get diff:", e);
       return "";
@@ -270,7 +276,7 @@ export class CheckpointManager {
     try {
       if (this.originalBranch && this.originalBranch !== this.sessionBranch) {
         try {
-          this.executeGit(`checkout ${this.originalBranch}`);
+          await this.executeGitAsync(["checkout", this.originalBranch]);
         } catch (e) {
           console.warn("Failed to switch back to original branch:", e);
         }
@@ -281,22 +287,10 @@ export class CheckpointManager {
   }
 
   /**
-   * Execute git command synchronously
+   * Execute git command asynchronously
    */
-  private executeGit(command: string): string {
-    try {
-      const result = execSync(`git ${command}`, {
-        cwd: this.basePath,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      return result;
-    } catch (e: unknown) {
-      const error = e as Error & { status?: number };
-      throw new Error(
-        `Git command failed: ${command}, Error: ${error.message}`,
-      );
-    }
+  private async executeGitAsync(args: string[]): Promise<string> {
+    return runGit(args, { cwd: this.basePath });
   }
 
   /**

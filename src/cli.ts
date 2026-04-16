@@ -6,6 +6,7 @@ import { ConfigManager } from "./config/ConfigManager.js";
 import { LLMProviderFactory } from "./providers/LLMProviderFactory.js";
 import { MemorySystem } from "./memory/MemorySystem.js";
 import { Spinner } from "./utils/Spinner.js";
+import { Logger, type LoggingConfig } from "./utils/Logger.js";
 import { ProviderTester } from "./testing/ProviderTester.js";
 import * as path from "path";
 import * as fs from "fs/promises";
@@ -1310,6 +1311,16 @@ async function handleChatMode(kairosPath: string): Promise<void> {
     process.exit(1);
   }
 
+  // インタラクティブモード: スピナーと干渉しないよう WARN 以上のみ表示
+  // initialize() の前に設定することで AgentLoop が正しいレベルで child logger を作成する
+  // config.json に logging.level が明示されていれば AgentLoop 側でそちらを優先する
+  {
+    const loggingConfig = configManager.get("logging") as
+      | LoggingConfig
+      | undefined;
+    Logger.configure({ level: "warn", ...loggingConfig });
+  }
+
   const agent = new AgentLoop(provider, kairosPath, configManager);
   await agent.initialize();
 
@@ -1393,7 +1404,20 @@ async function handleChatMode(kairosPath: string): Promise<void> {
       const spinner = new Spinner();
       spinner.start("処理中...");
       const tracker = createSpeedTracker(false);
-      agent.setStreamCallbacks(tracker.callbacks);
+      agent.setStreamCallbacks({
+        ...tracker.callbacks,
+        onStatus: (status) => {
+          if (status.phase === "thinking") {
+            spinner.update(
+              `[${status.iteration}/${status.maxIterations}] 考え中...`,
+            );
+          } else if (status.phase === "calling" && status.toolSummary) {
+            spinner.update(
+              `[${status.iteration}/${status.maxIterations}] ${status.toolSummary}`,
+            );
+          }
+        },
+      });
       const response = await agent.processUserInput(input);
       spinner.stop();
       console.log("\n" + response + "\n");
@@ -1437,6 +1461,14 @@ async function handleAutoMode(
     process.exit(1);
   }
 
+  // 自動モード: スピナーと干渉しないよう WARN 以上のみ表示（initialize() の前に設定）
+  {
+    const loggingConfig = configManager.get("logging") as
+      | LoggingConfig
+      | undefined;
+    Logger.configure({ level: "warn", ...loggingConfig });
+  }
+
   const agent = new AgentLoop(provider, kairosPath, configManager);
   await agent.initialize();
 
@@ -1472,7 +1504,20 @@ async function handleAutoMode(
       const spinner = new Spinner();
       spinner.start(`🤔 "${currentQuery.substring(0, 40)}..." を処理中...`);
       const tracker = createSpeedTracker(false);
-      agent.setStreamCallbacks(tracker.callbacks);
+      agent.setStreamCallbacks({
+        ...tracker.callbacks,
+        onStatus: (status) => {
+          if (status.phase === "thinking") {
+            spinner.update(
+              `[${status.iteration}/${status.maxIterations}] 考え中...`,
+            );
+          } else if (status.phase === "calling" && status.toolSummary) {
+            spinner.update(
+              `[${status.iteration}/${status.maxIterations}] ${status.toolSummary}`,
+            );
+          }
+        },
+      });
       const response = await agent.processUserInput(currentQuery);
       spinner.stop();
       console.log("\n" + response);
@@ -1685,6 +1730,14 @@ async function handleOneshotQuery(
     process.exit(1);
   }
 
+  // 単発クエリモード: スピナーと干渉しないよう WARN 以上のみ表示（initialize() の前に設定）
+  {
+    const loggingConfig = configManager.get("logging") as
+      | LoggingConfig
+      | undefined;
+    Logger.configure({ level: "warn", ...loggingConfig });
+  }
+
   const agent = new AgentLoop(provider, kairosPath, configManager);
   await agent.initialize();
 
@@ -1694,7 +1747,20 @@ async function handleOneshotQuery(
     const spinner = new Spinner();
     spinner.start("処理中...");
     const tracker = createSpeedTracker(false);
-    agent.setStreamCallbacks(tracker.callbacks);
+    agent.setStreamCallbacks({
+      ...tracker.callbacks,
+      onStatus: (status) => {
+        if (status.phase === "thinking") {
+          spinner.update(
+            `[${status.iteration}/${status.maxIterations}] 考え中...`,
+          );
+        } else if (status.phase === "calling" && status.toolSummary) {
+          spinner.update(
+            `[${status.iteration}/${status.maxIterations}] ${status.toolSummary}`,
+          );
+        }
+      },
+    });
     const response = await agent.processUserInput(query);
     spinner.stop();
     console.log("\n" + "=".repeat(80));

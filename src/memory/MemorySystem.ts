@@ -20,6 +20,13 @@ export class MemorySystem {
   // サーキットブレーカー
   private circuitBreaker: CircuitBreakerState;
 
+  // W2-6: 前処理キャッシュ (content → { lines, linesLower, mtime })
+  private contentCache = new Map<
+    string,
+    { lines: string[]; linesLower: string[]; mtime: number }
+  >();
+  private readonly CACHE_TTL_MS = 60_000; // 60秒キャッシュ
+
   constructor(
     basePath: string,
     compactionConfig?: Partial<MemoryCompactionConfig>,
@@ -358,6 +365,35 @@ export class MemorySystem {
   // ========================================
 
   /**
+   * W2-6: コンテンツの前処理をキャッシュ付きで取得
+   */
+  private async getPreprocessedContent(
+    filePath: string,
+    content: string,
+  ): Promise<{ lines: string[]; linesLower: string[] }> {
+    try {
+      const stat = await fs.stat(filePath);
+      const mtime = stat.mtimeMs;
+
+      const cached = this.contentCache.get(filePath);
+      if (cached && cached.mtime === mtime && Date.now() - mtime < this.CACHE_TTL_MS) {
+        return { lines: cached.lines, linesLower: cached.linesLower };
+      }
+
+      // 新規前処理
+      const lines = content.split("\n");
+      const linesLower = lines.map((l) => l.toLowerCase());
+      this.contentCache.set(filePath, { lines, linesLower, mtime });
+      return { lines, linesLower };
+    } catch {
+      // stat 失敗時は前処理なしで返す
+      const lines = content.split("\n");
+      const linesLower = lines.map((l) => l.toLowerCase());
+      return { lines, linesLower };
+    }
+  }
+
+  /**
    * 最適化されたメモリ検索
    * 全てのレイヤーを検索し、関連度をスコアリング
    */
@@ -366,17 +402,39 @@ export class MemorySystem {
     limit: number = 10,
   ): Promise<MemorySearchResult[]> {
     const results: MemorySearchResult[] = [];
+    const queryWords = query.toLowerCase().split(/\s+/);
 
-    // 1. メインメモリ検索
+    // 1. メインメモリ検索（W2-6: キャッシュ付き前処理）
     const memoryContent = await this.readMemory();
-    const memoryResults = this.searchContent(query, memoryContent, "memory");
+    const memoryPreprocessed = await this.getPreprocessedContent(
+      this.memoryPath,
+      memoryContent,
+    );
+    const memoryResults = this.searchContent(
+      queryWords,
+      memoryPreprocessed.lines,
+      memoryPreprocessed.linesLower,
+      "memory",
+    );
     results.push(...memoryResults);
 
-    // 2. トピック検索
+    // 2. トピック検索（並列読み込み + W2-6: キャッシュ付き前処理）
     const topicFiles = await this.listTopics();
-    for (const topicFile of topicFiles) {
-      const topicContent = await this.readTopic(topicFile);
-      const topicResults = this.searchContent(query, topicContent, "topic");
+    const topicData = await Promise.all(
+      topicFiles.map(async (tf) => {
+        const content = await this.readTopic(tf);
+        const topicPath = path.join(this.topicsPath, `${tf}.md`);
+        const preprocessed = await this.getPreprocessedContent(topicPath, content);
+        return { preprocessed };
+      }),
+    );
+    for (const { preprocessed } of topicData) {
+      const topicResults = this.searchContent(
+        queryWords,
+        preprocessed.lines,
+        preprocessed.linesLower,
+        "topic",
+      );
       results.push(...topicResults);
     }
 
@@ -391,20 +449,19 @@ export class MemorySystem {
   }
 
   /**
-   * コンテンツ検索のヘルパー関数
+   * コンテンツ検索のヘルパー関数（W2-6: 前処理済みデータを受け取る）
    */
   private searchContent(
-    query: string,
-    content: string,
+    queryWords: string[],
+    lines: string[],
+    linesLower: string[],
     source: "memory" | "topic",
   ): MemorySearchResult[] {
     const results: MemorySearchResult[] = [];
-    const queryWords = query.toLowerCase().split(/\s+/);
 
-    const lines = content.split("\n");
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const lowerLine = line.toLowerCase();
+      const lowerLine = linesLower[i];
 
       // クエリ単語との一致を確認
       const matchCount = queryWords.filter((word) =>

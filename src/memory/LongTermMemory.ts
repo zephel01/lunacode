@@ -17,6 +17,7 @@
  */
 
 import * as path from "path";
+import { createHash } from "node:crypto";
 import {
   IEmbeddingProvider,
   createAutoEmbeddingProvider,
@@ -75,6 +76,12 @@ export interface MemoryContext {
 export class LongTermMemory {
   private vectorStore: VectorStore;
   private embeddingProvider?: IEmbeddingProvider;
+  // Embedding LRU キャッシュ（sha256(content) → embedding）
+  // 同じテキストに対する provider 呼び出しを回避する。
+  private readonly embeddingCache = new Map<string, number[]>();
+  private readonly embeddingCacheMax = 2_000;
+  private embeddingCacheHits = 0;
+  private embeddingCacheMisses = 0;
   private readonly config: Required<
     Omit<
       LongTermMemoryConfig,
@@ -411,14 +418,45 @@ export class LongTermMemory {
    * Embedding 生成（エラー時はゼロベクトルを返す）
    */
   private async generateEmbeddingSafe(text: string): Promise<number[]> {
+    // LRU キャッシュヒットなら即返却（末尾に付け直して LRU 更新）
+    const key = createHash("sha256").update(text).digest("hex");
+    const cached = this.embeddingCache.get(key);
+    if (cached) {
+      this.embeddingCache.delete(key);
+      this.embeddingCache.set(key, cached);
+      this.embeddingCacheHits++;
+      return cached;
+    }
+
+    this.embeddingCacheMisses++;
     try {
-      return await this.embeddingProvider!.generateEmbedding(text);
+      const vec = await this.embeddingProvider!.generateEmbedding(text);
+      this.embeddingCache.set(key, vec);
+      // 容量超過時は最古エントリを 1 件 eviction
+      if (this.embeddingCache.size > this.embeddingCacheMax) {
+        const oldestKey = this.embeddingCache.keys().next().value;
+        if (oldestKey) this.embeddingCache.delete(oldestKey);
+      }
+      return vec;
     } catch (error) {
       console.warn("[LongTermMemory] Embedding 生成に失敗:", error);
       // フォールバック: ゼロベクトル（検索時にはヒットしにくい）
       const dim = this.embeddingProvider!.getDimension();
       return new Array(dim).fill(0);
     }
+  }
+
+  /**
+   * Embedding キャッシュの統計を返す（デバッグ・チューニング用）
+   */
+  getCacheStats(): { size: number; hits: number; misses: number; hitRate: number } {
+    const total = this.embeddingCacheHits + this.embeddingCacheMisses;
+    return {
+      size: this.embeddingCache.size,
+      hits: this.embeddingCacheHits,
+      misses: this.embeddingCacheMisses,
+      hitRate: total === 0 ? 0 : this.embeddingCacheHits / total,
+    };
   }
 
   /**

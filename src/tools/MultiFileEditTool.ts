@@ -221,12 +221,15 @@ export class MultiFileEditTool extends BaseTool {
 
       // ── Phase 3: ディスクに書き込み ─────────────────
       const writtenPaths: string[] = [];
+      const verifiedSizes: Map<string, number> = new Map();
       try {
         for (const [absPath, content] of contentCache) {
           // ディレクトリが存在しなければ作成
           const dir = pathMod.dirname(absPath);
           await fs.mkdir(dir, { recursive: true });
           await fs.writeFile(absPath, content, "utf-8");
+          const stat = await fs.stat(absPath);
+          verifiedSizes.set(absPath, stat.size);
           writtenPaths.push(absPath);
         }
       } catch (writeError) {
@@ -239,12 +242,15 @@ export class MultiFileEditTool extends BaseTool {
         };
       }
 
+      const verifyLines = writtenPaths.map(
+        (p) => `  ✅ ${p} [${verifiedSizes.get(p)} bytes on disk]`,
+      );
       const header = description
         ? `${description}: ${edits.length} edit(s) applied to ${contentCache.size} file(s)`
         : `${edits.length} edit(s) applied to ${contentCache.size} file(s)`;
       return {
         success: true,
-        output: [header, ...results].join("\n"),
+        output: [header, ...results, ...verifyLines].join("\n"),
       };
     } catch (error) {
       return {

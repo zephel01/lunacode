@@ -16,8 +16,9 @@
  *   - テスト失敗時は PR 作成をスキップ（createPROnTestFailure: true で上書き可）
  */
 
-import { execSync, spawn } from "child_process";
+import { spawn } from "child_process";
 import { ILLMProvider } from "../providers/LLMProvider.js";
+import { runGit } from "../utils/gitRunner.js";
 import {
   AutoGitConfig,
   AutoGitWorkflowResult,
@@ -43,13 +44,13 @@ const DEFAULTS = {
 >;
 
 // 拒否する git コマンドパターン（安全ガード）
-const BLOCKED_GIT_PATTERNS = [
-  /--force/,
-  /-f\b/,
-  /reset\s+--hard/,
-  /clean\s+-[a-z]*f/,
-  /push\s+.*--force/,
-  /rebase\s+--onto/,
+const BLOCKED_GIT_SUBCOMMANDS_WITH_FLAGS: Array<{
+  sub: string;
+  flag?: RegExp;
+}> = [
+  { sub: "push", flag: /^--force$|^-f$|^--force-with-lease$/ },
+  { sub: "reset", flag: /^--hard$/ },
+  { sub: "clean", flag: /^-fdx?$|^-d$/ },
 ];
 
 export class AutoGitWorkflow {
@@ -170,7 +171,7 @@ export class AutoGitWorkflow {
 
     try {
       // 変更ファイルの確認
-      const statusOutput = this.git("status --porcelain");
+      const statusOutput = await this.gitAsync(["status", "--porcelain"]);
       if (!statusOutput.trim()) {
         console.log(`     Nothing to commit.`);
         return { status: "nothing-to-commit", filesChanged: [] };
@@ -183,11 +184,11 @@ export class AutoGitWorkflow {
       }
 
       for (const file of filesToStage) {
-        this.git(`add -- "${file}"`);
+        await this.gitAsync(["add", file]);
       }
 
       // ステージ済みファイルの確認
-      const stagedOutput = this.git("diff --cached --name-only");
+      const stagedOutput = await this.gitAsync(["diff", "--cached", "--name-only"]);
       const filesChanged = stagedOutput
         .trim()
         .split("\n")
@@ -198,15 +199,17 @@ export class AutoGitWorkflow {
       }
 
       // コミットメッセージ生成
-      const diff = this.git("diff --cached --stat");
+      const diff = await this.gitAsync(["diff", "--cached", "--stat"]);
       const message = await this.generateCommitMessage(taskSummary, diff);
       const fullMessage = this.config.commitPrefix
         ? `${this.config.commitPrefix}${message}`
         : message;
 
       // コミット実行（--no-verify で pre-commit フックをバイパス可能だが、ここでは通常コミット）
-      this.git(`commit -m "${fullMessage.replace(/"/g, '\\"')}"`);
-      const commitHash = this.git("rev-parse --short HEAD").trim();
+      await this.gitAsync(["commit", "-m", fullMessage]);
+      const commitHash = (
+        await this.gitAsync(["rev-parse", "--short", "HEAD"])
+      ).trim();
 
       console.log(`     ✅ Committed: ${commitHash} — ${fullMessage}`);
       console.log(
@@ -301,7 +304,9 @@ export class AutoGitWorkflow {
       }
 
       // 現在のブランチを取得
-      const currentBranch = this.git("rev-parse --abbrev-ref HEAD").trim();
+      const currentBranch = (
+        await this.gitAsync(["rev-parse", "--abbrev-ref", "HEAD"])
+      ).trim();
       if (currentBranch === this.config.baseBranch) {
         return {
           status: "skipped",
@@ -311,7 +316,7 @@ export class AutoGitWorkflow {
 
       // リモートへプッシュ
       console.log(`     📤 Pushing branch: ${currentBranch}`);
-      this.git(`push -u origin "${currentBranch}"`);
+      await this.gitAsync(["push", "-u", "origin", currentBranch]);
 
       // PR タイトル・本文を生成
       const prTitle = await this.generatePRTitle(taskSummary);
@@ -474,9 +479,9 @@ export class AutoGitWorkflow {
 
   /** gh CLI なし / 失敗時のマニュアル手順 */
   private buildPRInstructions(taskSummary: string): string {
-    const branch = (() => {
+    const branch = (async () => {
       try {
-        return this.git("rev-parse --abbrev-ref HEAD").trim();
+        return (await this.gitAsync(["rev-parse", "--abbrev-ref", "HEAD"])).trim();
       } catch {
         return "<your-branch>";
       }
@@ -544,21 +549,17 @@ export class AutoGitWorkflow {
   }
 
   /**
-   * git コマンドを安全に実行する（破壊的コマンドはブロック）。
+   * git コマンドを非同期・安全に実行する（破壊的コマンドはブロック）。
    */
-  private git(command: string): string {
+  private async gitAsync(args: string[]): Promise<string> {
+    const [sub, ...rest] = args;
     // 安全ガード: 危険なコマンドパターンをブロック
-    for (const pattern of BLOCKED_GIT_PATTERNS) {
-      if (pattern.test(command)) {
-        throw new Error(`Blocked dangerous git command: git ${command}`);
+    for (const rule of BLOCKED_GIT_SUBCOMMANDS_WITH_FLAGS) {
+      if (sub === rule.sub && (!rule.flag || rest.some((a) => rule.flag!.test(a)))) {
+        throw new Error(`Blocked dangerous git command: git ${args.join(" ")}`);
       }
     }
-
-    return execSync(`git ${command}`, {
-      cwd: this.basePath,
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    return runGit(args, { cwd: this.basePath });
   }
 
   /** シェルコマンドを非同期で実行する */

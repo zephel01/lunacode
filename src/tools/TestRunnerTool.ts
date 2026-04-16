@@ -19,7 +19,8 @@
 import { BaseTool } from "./BaseTool.js";
 import { ToolResult } from "../types/index.js";
 import { spawn } from "child_process";
-import { existsSync, readFileSync } from "fs";
+import { promises as fsp } from "fs";
+import { existsSync, readFileSync } from "fs"; // Makefile 同期読み込みは当面残す
 import { join, resolve } from "path";
 
 // ──────────────────────────────────────────────
@@ -62,57 +63,82 @@ export interface TestResult {
 // フレームワーク自動検出
 // ──────────────────────────────────────────────
 
-function detectFramework(cwd: string): TestFramework {
-  // Rust
-  if (existsSync(join(cwd, "Cargo.toml"))) return "cargo";
+// CWD → 検出結果のキャッシュ（TTL 60 秒）
+const DETECT_CACHE_TTL_MS = 60_000;
+const CWD_DETECT_CACHE = new Map<string, { framework: TestFramework; ts: number }>();
 
-  // Go
-  if (existsSync(join(cwd, "go.mod"))) return "go";
+const MARKER_FILES = [
+  "Cargo.toml",
+  "go.mod",
+  "pytest.ini",
+  "pyproject.toml",
+  "setup.cfg",
+  "conftest.py",
+  "package.json",
+  "bun.lockb",
+  "Makefile",
+  "setup.py",
+] as const;
 
-  // Python: pytest > unittest
+async function detectFramework(cwd: string): Promise<TestFramework> {
+  const cached = CWD_DETECT_CACHE.get(cwd);
+  if (cached && Date.now() - cached.ts < DETECT_CACHE_TTL_MS) {
+    return cached.framework;
+  }
+
+  // マーカーファイルの存在を並列 stat
+  const statResults = await Promise.allSettled(
+    MARKER_FILES.map((m) => fsp.stat(join(cwd, m))),
+  );
+  const exists = new Map<string, boolean>();
+  MARKER_FILES.forEach((m, i) => exists.set(m, statResults[i].status === "fulfilled"));
+
+  const framework = await resolveFrameworkFromMarkers(cwd, exists);
+  CWD_DETECT_CACHE.set(cwd, { framework, ts: Date.now() });
+  return framework;
+}
+
+async function resolveFrameworkFromMarkers(
+  cwd: string,
+  exists: Map<string, boolean>,
+): Promise<TestFramework> {
+  if (exists.get("Cargo.toml")) return "cargo";
+  if (exists.get("go.mod")) return "go";
+
   if (
-    existsSync(join(cwd, "pytest.ini")) ||
-    existsSync(join(cwd, "pyproject.toml")) ||
-    existsSync(join(cwd, "setup.cfg")) ||
-    existsSync(join(cwd, "conftest.py"))
-  )
+    exists.get("pytest.ini") ||
+    exists.get("pyproject.toml") ||
+    exists.get("setup.cfg") ||
+    exists.get("conftest.py")
+  ) {
     return "pytest";
+  }
 
-  // Node.js / Bun
-  const pkgPath = join(cwd, "package.json");
-  if (existsSync(pkgPath)) {
+  if (exists.get("package.json")) {
     try {
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+      const raw = await fsp.readFile(join(cwd, "package.json"), "utf-8");
+      const pkg = JSON.parse(raw) as {
         scripts?: Record<string, string>;
         devDependencies?: Record<string, string>;
         dependencies?: Record<string, string>;
       };
       const testScript = pkg.scripts?.test ?? "";
-      const allDeps = {
-        ...pkg.devDependencies,
-        ...pkg.dependencies,
-      };
-
-      if (existsSync(join(cwd, "bun.lockb")) || testScript.includes("bun"))
-        return "bun";
+      const allDeps = { ...pkg.devDependencies, ...pkg.dependencies };
+      if (exists.get("bun.lockb") || testScript.includes("bun")) return "bun";
       if ("vitest" in allDeps || testScript.includes("vitest")) return "vitest";
       if ("jest" in allDeps || testScript.includes("jest")) return "jest";
-      // fallback: npm test
       return "jest";
     } catch {
       // parse error → fall through
     }
   }
 
-  // Makefile with test target
-  const makefilePath = join(cwd, "Makefile");
-  if (existsSync(makefilePath)) {
-    const content = readFileSync(makefilePath, "utf-8");
+  if (exists.get("Makefile")) {
+    const content = await fsp.readFile(join(cwd, "Makefile"), "utf-8");
     if (/^test\s*:/m.test(content)) return "make";
   }
 
-  // Python fallback
-  if (existsSync(join(cwd, "setup.py"))) return "pytest";
+  if (exists.get("setup.py")) return "pytest";
 
   return "pytest"; // SWE-bench はほぼ Python
 }
@@ -727,7 +753,7 @@ export class TestRunnerTool extends BaseTool {
       // ── フレームワーク決定 ─────────────────────────────
       const framework: TestFramework =
         frameworkParam === "auto"
-          ? detectFramework(cwd)
+          ? await detectFramework(cwd)
           : (frameworkParam as TestFramework);
 
       // ── コマンドビルド ────────────────────────────────

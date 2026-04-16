@@ -295,6 +295,19 @@ export interface StreamChunk {
 }
 
 // ストリーミングコールバック
+export interface AgentStatus {
+  /** 現在のイテレーション番号 */
+  iteration: number;
+  /** 最大イテレーション数 */
+  maxIterations: number;
+  /** フェーズ: thinking（LLM呼び出し中）/ calling（ツール実行中）/ done */
+  phase: "thinking" | "calling" | "done";
+  /** 呼び出し中のツール名（phase === "calling" のとき） */
+  toolName?: string;
+  /** ツール引数の短い説明（例: `bash: ls -la`） */
+  toolSummary?: string;
+}
+
 export interface StreamCallbacks {
   onToken?: (token: string) => void;
   onToolCall?: (toolCall: ToolCall) => void;
@@ -305,6 +318,8 @@ export interface StreamCallbacks {
     durationMs?: number;
   }) => void;
   onError?: (error: string) => void;
+  /** エージェントの進捗状態が変わるたびに呼ばれる */
+  onStatus?: (status: AgentStatus) => void;
 }
 
 // ========================================

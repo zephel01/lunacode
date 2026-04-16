@@ -28,6 +28,7 @@ export interface LoggingConfig {
 export class Logger {
   private static root: pino.Logger | null = null;
   private static config: LoggingConfig = {};
+  private static configured: boolean = false;
 
   /**
    * グローバル設定を適用してルートロガーを（再）作成する。
@@ -35,6 +36,7 @@ export class Logger {
    */
   static configure(config: LoggingConfig = {}): void {
     Logger.config = config;
+    Logger.configured = true;
 
     const level = config.level ?? "info";
     const useJson = config.json ?? false;
@@ -106,10 +108,18 @@ export class Logger {
   }
 
   /**
+   * CLI などが事前に configure() を呼んだかどうか
+   */
+  static isConfigured(): boolean {
+    return Logger.configured;
+  }
+
+  /**
    * テスト用: ルートロガーをリセット
    */
   static reset(): void {
     Logger.root = null;
     Logger.config = {};
+    Logger.configured = false;
   }
 }

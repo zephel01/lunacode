@@ -203,15 +203,17 @@ export class FileWriteTool extends BaseTool {
       const fs = await import("fs/promises");
       if (append) {
         await fs.appendFile(path, content, "utf-8");
+        const stat = await fs.stat(path);
         return {
           success: true,
-          output: `Successfully appended ${content.length} characters to ${path}`,
+          output: `Successfully appended to ${path} [verified: ${stat.size} bytes on disk]`,
         };
       } else {
         await fs.writeFile(path, content, "utf-8");
+        const stat = await fs.stat(path);
         return {
           success: true,
-          output: `Successfully wrote ${content.length} characters to ${path}`,
+          output: `Successfully wrote ${path} [verified: ${stat.size} bytes on disk]`,
         };
       }
     } catch (error) {
@@ -285,10 +287,11 @@ export class FileEditTool extends BaseTool {
       }
 
       await fs.writeFile(path, content, "utf-8");
+      const stat = await fs.stat(path);
 
       return {
         success: true,
-        output: `Successfully edited ${path}`,
+        output: `Successfully edited ${path} [verified: ${stat.size} bytes on disk]`,
       };
     } catch (error) {
       return {

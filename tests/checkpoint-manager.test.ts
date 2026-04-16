@@ -214,7 +214,7 @@ describe("CheckpointManager", () => {
     expect(cp2).not.toBeNull();
 
     // Get diff
-    const diff = manager.diff(cp1!.id, cp2!.id);
+    const diff = await manager.diff(cp1!.id, cp2!.id);
     expect(diff).toBeDefined();
     expect(diff.length).toBeGreaterThan(0);
   });
@@ -345,9 +345,9 @@ describe("CheckpointManager", () => {
     expect(checkpoint?.description).toContain("@#$%");
   });
 
-  test("diff returns empty string for invalid checkpoint", () => {
+  test("diff returns empty string for invalid checkpoint", async () => {
     const manager = new CheckpointManager(tempDir);
-    const diff = manager.diff("invalid-cp");
+    const diff = await manager.diff("invalid-cp");
 
     expect(diff).toBe("");
   });

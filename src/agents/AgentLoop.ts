@@ -4,6 +4,7 @@ import { LongTermMemory } from "../memory/LongTermMemory.js";
 import {
   AgentMessage,
   AgentState,
+  AgentStatus,
   LoadedSkill,
   StreamChunk,
   StreamCallbacks,
@@ -31,6 +32,7 @@ import { ModelRouter } from "./ModelRouter.js";
 import { LLMProviderFactory } from "../providers/LLMProviderFactory.js";
 import { Logger } from "../utils/Logger.js";
 import type { LoggingConfig } from "../utils/Logger.js";
+import { extractFiles } from "../utils/WholeFormatParser.js";
 
 export class AgentLoop {
   private toolRegistry: ToolRegistry;
@@ -117,7 +119,14 @@ export class AgentLoop {
     const loggingConfig = this.configManager.get("logging") as
       | LoggingConfig
       | undefined;
-    Logger.configure(loggingConfig ?? {});
+    if (loggingConfig) {
+      // config.json に明示的な logging 設定がある場合は常に適用（ユーザー設定優先）
+      Logger.configure(loggingConfig);
+    } else if (!Logger.isConfigured()) {
+      // まだ誰も設定していない場合（テスト等）はデフォルト (info) で初期化
+      Logger.configure({});
+    }
+    // CLI が initialize() 前に Logger.configure() を呼んだ場合はそちらを維持する
     this.log = Logger.get("AgentLoop");
 
     // Phase 2: コンテキストウィンドウ管理の初期化
@@ -520,6 +529,25 @@ Follow the ReAct pattern:
 3. Observation: Analyze the tool output
 4. If the task is DONE: respond with a final text answer (NO tool calls). Do not loop.
 
+ALTERNATIVE FILE FORMAT (use if tool calling is not working):
+If you cannot use tool calls, you can create files by writing them in this format:
+filename.ext
+\`\`\`language
+file content here
+\`\`\`
+
+Example:
+index.html
+\`\`\`html
+<!DOCTYPE html>
+<html>...</html>
+\`\`\`
+
+tetris.js
+\`\`\`javascript
+// game logic
+\`\`\`
+
 When you have enough information or the task is complete, provide a clear, concise response to the user WITHOUT any tool calls.`;
 
     // システムメッセージの重複追加を防止
@@ -602,6 +630,13 @@ When you have enough information or the task is complete, provide a clear, conci
       try {
         this.state.phase = "THINKING";
         this.state.iteration++;
+
+        // 進捗通知: thinking 開始
+        this.streamCallbacks?.onStatus?.({
+          iteration: this.state.iteration,
+          maxIterations: this.state.maxIterations,
+          phase: "thinking",
+        });
 
         // ツールを定義
         const tools = this.toolRegistry.getAll().map((tool) => ({
@@ -719,13 +754,18 @@ When you have enough information or the task is complete, provide a clear, conci
             this.log.info(
               `[DEBUG] ⚠️ Duplicate tool call detected (${duplicateCount}x): ${toolCallKey.substring(0, 100)}. Breaking loop.`,
             );
-            this.messages.push({
-              role: "user",
-              content:
-                "You have called the same tool with the same arguments multiple times. The task appears to be complete. Please provide your FINAL TEXT ANSWER now without any tool calls.",
+            // モデルが同じツールを繰り返し呼び出して進められない状態
+            // → LLM に「まとめ」を書かせず、即座にエラーとして終了する
+            // （"The task appears to be complete" のような嘘の前提を与えない）
+            this.streamCallbacks?.onStatus?.({
+              iteration: this.state.iteration,
+              maxIterations: this.state.maxIterations,
+              phase: "calling",
+              toolName: "error",
+              toolSummary: `⚠️ 同じツールを ${duplicateCount} 回繰り返しました。処理を中断します`,
             });
-            this.recentToolCallHistory = [];
-            continue;
+            response = `⚠️ エラー: モデルが "${toolCalls[0]?.function?.name ?? "unknown"}" を ${duplicateCount} 回繰り返し呼び出しましたが処理が進みませんでした。\n別のモデルを試すか、タスクをより具体的に指定してください。`;
+            break;
           }
 
           for (const toolCall of toolCalls) {
@@ -735,6 +775,27 @@ When you have enough information or the task is complete, provide a clear, conci
 
               this.log.info(`\n🤖 ${this.state.thought}`);
               this.log.info(`🔧 Executing: ${toolCall.function.name}`);
+
+              // 進捗通知: ツール呼び出し開始
+              {
+                let parsedForSummary: Record<string, unknown> = {};
+                try {
+                  parsedForSummary = JSON.parse(toolCall.function.arguments);
+                } catch {
+                  // ignore
+                }
+                const toolSummary = buildToolSummary(
+                  toolCall.function.name,
+                  parsedForSummary,
+                );
+                this.streamCallbacks?.onStatus?.({
+                  iteration: this.state.iteration,
+                  maxIterations: this.state.maxIterations,
+                  phase: "calling",
+                  toolName: toolCall.function.name,
+                  toolSummary,
+                });
+              }
 
               let parsedArgs: Record<string, unknown>;
               try {
@@ -961,6 +1022,51 @@ Replace each placeholder with the REAL, COMPLETE implementation code. Do NOT lea
           // ツールコールがない場合
           const content = assistantContent || "";
 
+          // ─── Whole Format フォールバック ──────────────────────────────────
+          // モデルがツール呼び出しの代わりにコードブロック形式でファイルを出力した場合
+          // (Aider の "whole" 形式)、パースして実際にディスクへ書き込む
+          const wholeFiles = extractFiles(content);
+          if (wholeFiles.length > 0) {
+            this.log.info(
+              `Whole-format files detected: ${wholeFiles.length} file(s)`,
+            );
+            const fs = await import("fs/promises");
+            const path = await import("path");
+            const writeResults: string[] = [];
+            for (const { path: filePath, content: fileContent } of wholeFiles) {
+              try {
+                // ディレクトリを作成してからファイルを書き込む
+                const dir = path.dirname(filePath);
+                if (dir !== ".") await fs.mkdir(dir, { recursive: true });
+                await fs.writeFile(filePath, fileContent, "utf-8");
+                const stat = await fs.stat(filePath);
+                writeResults.push(
+                  `✅ ${filePath} [verified: ${stat.size} bytes on disk]`,
+                );
+                this.streamCallbacks?.onStatus?.({
+                  iteration: this.state.iteration,
+                  maxIterations: this.state.maxIterations,
+                  phase: "calling",
+                  toolName: "write_file",
+                  toolSummary: `write: ${filePath}`,
+                });
+                this.log.info(
+                  `Whole-format write: ${filePath} (${stat.size} bytes)`,
+                );
+              } catch (err) {
+                writeResults.push(
+                  `❌ ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              }
+            }
+            // ツール実行結果として会話に追加し、ループを継続
+            this.messages.push({
+              role: "user",
+              content: `Files written from your response:\n${writeResults.join("\n")}\n\nTask complete. Please provide your final summary.`,
+            });
+            continue;
+          }
+
           // ─── リトライ条件の判定 ───────────────────────────────────────────
           const isEarlyPhase = this.state.iteration <= 3;
           const isFirstIteration = this.state.iteration === 1;
@@ -1035,6 +1141,14 @@ Do NOT explain. Actually call the tool now.`;
             continue; // ループの先頭に戻る
           }
 
+          // リトライ上限到達 → ツールを呼べないモデルへの明示通知
+          this.streamCallbacks?.onStatus?.({
+            iteration: this.state.iteration,
+            maxIterations: this.state.maxIterations,
+            phase: "calling",
+            toolName: "error",
+            toolSummary: `⚠️ このモデルはツールを呼び出せませんでした (${this.retryCount}/${this.maxRetries} 回試行)`,
+          });
           response = content;
           break;
         }
@@ -1097,6 +1211,13 @@ Do NOT explain. Actually call the tool now.`;
         `\n## Latest Response\n${response}\n`,
       );
     }
+
+    // 進捗通知: 完了
+    this.streamCallbacks?.onStatus?.({
+      iteration: this.state.iteration,
+      maxIterations: this.state.maxIterations,
+      phase: "done",
+    });
 
     return response;
   }
@@ -1205,5 +1326,52 @@ Do NOT explain. Actually call the tool now.`;
 
   getLongTermMemory(): LongTermMemory | undefined {
     return this.longTermMemory;
+  }
+}
+
+/**
+ * ツール名と引数から人間が読みやすい一行サマリーを生成
+ * 例: bash("ls -la src/") / read_file("src/cli.ts") / glob("**\/*.ts")
+ */
+function buildToolSummary(
+  toolName: string,
+  args: Record<string, unknown>,
+): string {
+  const truncate = (s: string, n = 60) =>
+    s.length > n ? s.slice(0, n) + "…" : s;
+
+  switch (toolName) {
+    case "bash":
+      return `bash: ${truncate(String(args.command ?? ""))}`;
+    case "read_file":
+      return `read: ${truncate(String(args.path ?? ""))}`;
+    case "write_file":
+      return `write: ${truncate(String(args.path ?? ""))}`;
+    case "edit_file":
+      return `edit: ${truncate(String(args.path ?? ""))}`;
+    case "multi_file_edit": {
+      const edits = Array.isArray(args.edits) ? args.edits : [];
+      return `multi_edit: ${edits.length} file(s)`;
+    }
+    case "glob":
+      return `glob: ${truncate(String(args.pattern ?? ""))}`;
+    case "grep":
+      return `grep: "${truncate(String(args.pattern ?? ""), 30)}" in ${truncate(String(args.path ?? "."), 30)}`;
+    case "git_status":
+      return "git: status";
+    case "git_diff":
+      return `git: diff ${truncate(String(args.target ?? "working"))}`;
+    case "git_commit":
+      return `git: commit "${truncate(String(args.message ?? ""), 40)}"`;
+    case "git_apply":
+      return "git: apply patch";
+    case "git_log":
+      return "git: log";
+    case "run_tests":
+      return `test: ${args.framework ?? "auto"}${args.test_file ? ` ${truncate(String(args.test_file), 30)}` : ""}`;
+    case "delegate_task":
+      return `delegate: ${truncate(String(args.task ?? ""), 50)}`;
+    default:
+      return toolName;
   }
 }

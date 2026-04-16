@@ -9,6 +9,8 @@ import {
   defaultGenerateResponse,
 } from "./LLMProvider.js";
 import { StreamChunk } from "../types/index.js";
+import { Logger } from "../utils/Logger.js";
+import type pino from "pino";
 
 export class OllamaProvider implements ILLMProvider {
   private baseUrl: string;
@@ -17,6 +19,7 @@ export class OllamaProvider implements ILLMProvider {
   private useNativeTools: boolean = true; // ネイティブ Tool Calling を試行するか
   /** リクエストタイムアウト（ミリ秒）。デフォルト 5 分 */
   private requestTimeout: number;
+  private log: pino.Logger;
 
   constructor(config: OllamaConfig) {
     const baseUrl = config.baseUrl ?? "http://localhost:11434";
@@ -31,6 +34,7 @@ export class OllamaProvider implements ILLMProvider {
     this.baseUrl = baseUrl;
     this.model = model;
     this.requestTimeout = config.requestTimeout ?? 300_000; // デフォルト 5 分
+    this.log = Logger.get("OllamaProvider");
   }
 
   /**
@@ -91,15 +95,15 @@ export class OllamaProvider implements ILLMProvider {
         });
 
         effectiveRequest = { ...request, messages };
-        console.log(
-          `[DEBUG] Streaming with text-extraction mode: tool instructions injected into system prompt`,
+        this.log.debug(
+          `Streaming with text-extraction mode: tool instructions injected into system prompt`,
         );
       }
 
       const body = this.buildRequestBody(effectiveRequest, true);
 
-      console.log(
-        `[DEBUG] Ollama streaming request: model=${body.model}, stream=true, useNativeTools=${this.useNativeTools}`,
+      this.log.debug(
+        `Ollama streaming request: model=${body.model}, stream=true, useNativeTools=${this.useNativeTools}`,
       );
 
       const response = await this.fetchWithTimeout(`${this.baseUrl}/api/chat`, {
@@ -112,8 +116,8 @@ export class OllamaProvider implements ILLMProvider {
         // ネイティブモードで Bad Request → モデルが tools パラメータ非対応
         // テキスト抽出モードにフォールバックしてリトライ
         if (this.useNativeTools && response.status === 400) {
-          console.log(
-            `[DEBUG] ⚠️ Ollama returned 400 Bad Request with native tools. Model may not support tool calling. Switching to text extraction mode.`,
+          this.log.debug(
+            `⚠️ Ollama returned 400 Bad Request with native tools. Model may not support tool calling. Switching to text extraction mode.`,
           );
           this.useNativeTools = false;
           // ストリーミングを再帰的にやり直す（今度は tools なしで）
@@ -198,8 +202,8 @@ export class OllamaProvider implements ILLMProvider {
                   );
 
                   if (streamToolCalls.length > 0) {
-                    console.log(
-                      `[DEBUG] Native tool calls in stream: ${streamToolCalls.length}`,
+                    this.log.debug(
+                      `Native tool calls in stream: ${streamToolCalls.length}`,
                     );
                   }
                 }
@@ -210,8 +214,8 @@ export class OllamaProvider implements ILLMProvider {
                   const extractedCalls =
                     this.extractToolCallsFromText(fullContent);
                   if (extractedCalls.length > 0) {
-                    console.log(
-                      `[DEBUG] Extracted ${extractedCalls.length} tool call(s) from streamed content (fallback)`,
+                    this.log.debug(
+                      `Extracted ${extractedCalls.length} tool call(s) from streamed content (fallback)`,
                     );
                     streamToolCalls = extractedCalls as typeof streamToolCalls;
                   }
@@ -224,8 +228,8 @@ export class OllamaProvider implements ILLMProvider {
                   !fullContent &&
                   streamToolCalls.length === 0
                 ) {
-                  console.log(
-                    `[DEBUG] ⚠️ Empty streaming response with native tools. Switching to text extraction mode for model: ${request.model || this.model}`,
+                  this.log.debug(
+                    `⚠️ Empty streaming response with native tools. Switching to text extraction mode for model: ${request.model || this.model}`,
                   );
                   this.useNativeTools = false;
                 }
@@ -318,8 +322,8 @@ export class OllamaProvider implements ILLMProvider {
   ): Promise<ChatCompletionResponse> {
     const body = this.buildRequestBody(request, false);
 
-    console.log(
-      `[DEBUG] Ollama request (native): tools=${(body.tools as unknown[])?.length || 0}, model=${body.model}`,
+    this.log.debug(
+      `Ollama request (native): tools=${(body.tools as unknown[])?.length || 0}, model=${body.model}`,
     );
 
     const response = await this.fetchWithTimeout(`${this.baseUrl}/api/chat`, {
@@ -331,8 +335,8 @@ export class OllamaProvider implements ILLMProvider {
     if (!response.ok) {
       // ネイティブモードで 400 → tools パラメータ非対応、テキスト抽出にフォールバック
       if (response.status === 400) {
-        console.log(
-          `[DEBUG] ⚠️ Ollama returned 400 Bad Request with native tools. Switching to text extraction mode.`,
+        this.log.debug(
+          `⚠️ Ollama returned 400 Bad Request with native tools. Switching to text extraction mode.`,
         );
         this.useNativeTools = false;
         return this.chatCompletionWithTextExtraction(request);
@@ -356,14 +360,14 @@ export class OllamaProvider implements ILLMProvider {
     const contentLen = data.message.content?.length || 0;
     const nativeToolCalls = data.message.tool_calls?.length || 0;
 
-    console.log(
-      `[DEBUG] Ollama response (native): content_length=${contentLen}, native_tool_calls=${nativeToolCalls}`,
+    this.log.debug(
+      `Ollama response (native): content_length=${contentLen}, native_tool_calls=${nativeToolCalls}`,
     );
 
     // 空レスポンス検出: content も tool_calls もない → モデルが非対応
     if (contentLen === 0 && nativeToolCalls === 0) {
-      console.log(
-        `[DEBUG] ⚠️ Empty response with native tools. Switching to text extraction mode for model: ${this.model}`,
+      this.log.debug(
+        `⚠️ Empty response with native tools. Switching to text extraction mode for model: ${this.model}`,
       );
       this.useNativeTools = false;
       return this.chatCompletionWithTextExtraction(request);
@@ -384,15 +388,15 @@ export class OllamaProvider implements ILLMProvider {
         },
       }));
 
-      console.log(`[DEBUG] Native tool calls: ${toolCalls.length} calls`);
+      this.log.debug(`Native tool calls: ${toolCalls.length} calls`);
       toolCalls.forEach((tc) => {
-        console.log(`[DEBUG]   ✅ ${tc.function.name}`);
+        this.log.debug(`  ✅ ${tc.function.name}`);
       });
     } else if (data.message.content) {
       toolCalls = this.extractToolCallsFromText(data.message.content);
       if (toolCalls.length > 0) {
-        console.log(
-          `[DEBUG] Text-extracted tool calls: ${toolCalls.length} calls`,
+        this.log.debug(
+          `Text-extracted tool calls: ${toolCalls.length} calls`,
         );
       }
     }
@@ -448,8 +452,8 @@ export class OllamaProvider implements ILLMProvider {
     const modifiedRequest = { ...request, messages };
     const body = this.buildRequestBody(modifiedRequest, false);
 
-    console.log(
-      `[DEBUG] Ollama request (text-extraction fallback): model=${body.model}`,
+    this.log.debug(
+      `Ollama request (text-extraction fallback): model=${body.model}`,
     );
 
     const response = await this.fetchWithTimeout(`${this.baseUrl}/api/chat`, {
@@ -466,8 +470,8 @@ export class OllamaProvider implements ILLMProvider {
       message: { role: string; content: string };
     };
 
-    console.log(
-      `[DEBUG] Ollama response (text-extraction): content_length=${data.message.content?.length || 0}`,
+    this.log.debug(
+      `Ollama response (text-extraction): content_length=${data.message.content?.length || 0}`,
     );
 
     let toolCalls: ToolCall[] = [];
@@ -475,11 +479,11 @@ export class OllamaProvider implements ILLMProvider {
     if (data.message.content) {
       toolCalls = this.extractToolCallsFromText(data.message.content);
       if (toolCalls.length > 0) {
-        console.log(
-          `[DEBUG] Text-extracted tool calls: ${toolCalls.length} calls`,
+        this.log.debug(
+          `Text-extracted tool calls: ${toolCalls.length} calls`,
         );
         toolCalls.forEach((tc) => {
-          console.log(`[DEBUG]   ✅ ${tc.function.name}`);
+          this.log.debug(`  ✅ ${tc.function.name}`);
         });
       }
     }
@@ -560,7 +564,7 @@ export class OllamaProvider implements ILLMProvider {
           if (jsonStr) {
             const parsed = this.tryParseToolCall(jsonStr);
             if (parsed) {
-              console.log(
+              this.log.debug(
                 "[DEBUG] Pattern 1b: extracted tool call from unclosed <tool_call> tag",
               );
               toolCalls.push(this.createToolCall(toolCalls.length, parsed));
@@ -675,8 +679,8 @@ export class OllamaProvider implements ILLMProvider {
     }
 
     if (toolCalls.length > 0) {
-      console.log(
-        `[DEBUG] Extracted ${toolCalls.length} tool call(s) using text patterns`,
+      this.log.debug(
+        `Extracted ${toolCalls.length} tool call(s) using text patterns`,
       );
     }
 
