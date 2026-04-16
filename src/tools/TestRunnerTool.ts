@@ -680,7 +680,7 @@ export class TestRunnerTool extends BaseTool {
         };
       }
 
-      const timeoutMs = Math.max(5, Math.min(timeout, 600)) * 1000;
+      const timeoutMs = Math.max(1, Math.min(timeout, 600)) * 1000;
 
       // test_file のパスインジェクション対策
       if (test_file) {

@@ -138,14 +138,14 @@ describe("Phase 21: TestRunnerTool", () => {
         JSON.stringify({ devDependencies: { jest: "^29" } }),
       );
       const tool = new TestRunnerTool();
-      // timeout: 3 で即タイムアウトさせ、フレームワーク名だけ確認
+      // timeout: 2 で即タイムアウトさせ、フレームワーク名だけ確認
       const result = await tool.execute({
         cwd: tmpDir,
         framework: "auto",
-        timeout: 3,
+        timeout: 2,
       });
       expect(result.output).toContain("jest");
-    });
+    }, 4000);
   });
 
   // ── パーサ: pytest ────────────────────────────────────
@@ -331,14 +331,14 @@ describe("Phase 21: TestRunnerTool", () => {
 
     it("jest を明示指定したとき出力に 'Framework: jest' が含まれる", async () => {
       const tool = new TestRunnerTool();
-      // jest は環境にないため timeout: 3 で即タイムアウト
+      // jest は環境にないため timeout: 2 で即タイムアウト
       const result = await tool.execute({
         cwd: tmpDir,
         framework: "jest",
-        timeout: 3,
+        timeout: 2,
       });
       expect(result.output).toContain("Framework: jest");
-    });
+    }, 4000);
 
     it("make を明示指定したとき出力に 'Framework: make' が含まれる", async () => {
       const tool = new TestRunnerTool();
