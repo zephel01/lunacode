@@ -205,7 +205,7 @@ export class GitDiffTool extends BaseTool {
         args.push("--cached");
       } else if (target !== "working") {
         // Sanitize: allow only safe ref patterns
-        if (!/^[a-zA-Z0-9_.\/~^@{}\-]+$/.test(target)) {
+        if (!/^[a-zA-Z0-9_./~^@{}-]+$/.test(target)) {
           return {
             success: false,
             output: "",
@@ -553,7 +553,7 @@ export class GitLogTool extends BaseTool {
 
       if (since) {
         // Sanitize since
-        if (!/^[a-zA-Z0-9 .\-\/]+$/.test(since)) {
+        if (!/^[a-zA-Z0-9 ./-]+$/.test(since)) {
           return {
             success: false,
             output: "",
