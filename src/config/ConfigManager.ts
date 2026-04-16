@@ -6,6 +6,7 @@ import {
   SelfEvalConfig,
   RoutingConfig,
 } from "../types/index.js";
+import type { LoggingConfig } from "../utils/Logger.js";
 
 export interface CheckpointConfig {
   enabled?: boolean;
@@ -90,6 +91,8 @@ export interface LunaCodeConfig {
   selfEval?: SelfEvalConfig;
   // モデルルーティング高度化設定（Phase 15）
   routing?: RoutingConfig;
+  // ロギング設定（Phase 16: pino 構造化ログ）
+  logging?: LoggingConfig;
   // 拡張設定（プラグイン等からの任意セクション）
   [key: string]: unknown;
 }
