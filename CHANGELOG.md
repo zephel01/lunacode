@@ -8,198 +8,186 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 次期バージョンで予定している変更はありません。
 
-## [1.1.0] - 2026-04-16
+---
+
+## [2.4.0] - 2026-04-16
 
 ### Added
 
-**SWE-bench 対応（Phase 18・20・21）**
+**SWE-bench 対応 Phase 20・21**
+
 - **Phase 21 Complete**: テスト実行ツール `run_tests`（TestRunnerTool）を追加
   - pytest / unittest / jest / vitest / bun / go test / cargo test / make の 8 フレームワークに対応
   - `pytest.ini` / `bun.lockb` / `go.mod` / `Cargo.toml` / `package.json` を検出してフレームワークを自動判定
   - 構造化出力: total / passed / failed / errors / skipped / failedTests[] / duration
   - パスインジェクション・env キー不正検証などのセキュリティバリデーション
   - タイムアウト制御（1〜600 秒）、出力 200 行切り詰め
-  - テスト: 30 pass（ToolRegistry 統合、フレームワーク自動検出、パーサ、バリデーション、SWE-bench ワークフローシナリオ）
+  - テスト: 30 pass
 - **Phase 20 Complete**: マルチファイル同時編集ツール `multi_file_edit`（MultiFileEditTool）
-  - 全ファイルをアトミックに編集し、失敗時はロールバック
+  - 全変更をアトミックに適用し、失敗時はロールバック
   - dry_run モードで事前検証、最大 50 ファイル、新規作成・置換・上書きに対応
   - テスト: 27 pass
+
+### Changed
+
+- コアツール数: 12 → 15（Phase 20・21 で 3 ツール追加）
+- テスト総数: 497 → 566 pass
+
+---
+
+## [2.3.0] - 2026-04-16
+
+### Added
+
+**SWE-bench 対応 Phase 18**
+
 - **Phase 18 Complete**: Git ツール強化（git_status / git_diff / git_commit / git_apply / git_log）
   - パラメータ単位の入力制限・危険操作ブロック・構造化出力
+  - GitStatusTool: `git diff` ベースで stat cache 問題を回避
+  - GitDiffTool: working / staged / 任意 ref 対応、context_lines・stat_only オプション
+  - GitCommitTool: バッククォート・`$(` を含むメッセージ・パスをブロック
+  - GitApplyTool: 一時ファイル経由でパッチ適用、dry-run・reverse オプション
+  - GitLogTool: count 上限・since・file フィルタ、インジェクション対策
   - テスト: 41 pass
 
 ### Changed
 
-- コアツール数: 7 → 15（Phase 18・20・21 で 8 ツール追加）
-- テスト総数: 536 → 566 pass
+- コアツール数: 7 → 12
 
-## [1.0.0] - 2026-04-10
+---
+
+## [2.2.0] - 2026-04-16
+
+### Added
+
+**Phase 17: CLI サブコマンド（commander.js / cobra 相当）**
+
+- `cli.ts` の if/else チェーンを `commander.js` の `Command` ベースに置換
+- ネストしたサブコマンド、エイリアス、オプション解析、`--help` 自動生成
+- テスト: 11 pass（コマンド構造・サブコマンド・オプション解析）
+
+---
+
+## [2.1.0] - 2026-04-16
+
+### Added
+
+**Phase 16: 構造化ログ（pino）**
+
+- JSON 構造化ログ / pino-pretty による開発時カラー出力
+- コンポーネント別子ロガー（`logger.child({ component: '...' })`）
+- エラーオブジェクトのスタックトレース自動シリアライズ
+- テスト: 19 pass
+
+---
+
+## [2.0.0] - 2026-04-16
+
+### Added
+
+**Phase 10–15: 高度機能**
+
+- **Phase 10 Complete**: 長期メモリ + ベクトル検索（TF-IDF / Ollama / OpenAI エンベディング、外部 DB 不要の純 TypeScript 実装）— テスト: 37 pass
+- **Phase 11 Complete**: マルチエージェントオーケストレーション（PipelineOrchestrator による Planner / Coder / Reviewer パイプライン）— テスト: 15 pass
+- **Phase 12 Complete**: 自動 Git ワークフロー（Conventional Commits 自動コミット、テスト実行・PR 作成）— テスト: 20 pass
+- **Phase 13 Complete**: Web Search / Browser ツール統合（mcp-wrapper 連携、SSRF 対策）
+- **Phase 14 Complete**: 自己評価・自己修正ループ（LLM スコアリング、閾値未満で自動修正・再生成）— テスト: 16 pass
+- **Phase 15 Complete**: モデルルーティング高度化（TaskClassifier キーワードスコアリング拡張、フォールバックチェーン）— テスト: 32 pass
+
+### Breaking Changes
+
+- AgentLoop 内部 API 変更（SelfEvaluator / ModelRouter 統合）
+
+---
+
+## [1.0.0] - 2026-04-12
 
 ### Added
 
 **コア機能（Phase 0）**
-- **Phase 0 Complete**: Basic agent loop with 8 core tools (Bash, read/write/edit_file, Glob, Grep, Git, delegate_task)
+
 - ReAct パターン（Thought → Action → Observation）による自律ループ（最大50イテレーション）
+- 7 のコアツール: Bash, read/write/edit_file, Glob, Grep, Git, delegate_task
 - Multi-LLM provider support: OpenAI / Z.AI (GLM) / Ollama / LM Studio / LiteLLM
 - React Ink-based TUI interface
-- Comprehensive CLI with all commands
 
-**ローカルLLM最適化（Phase 1–4）**
-- **Phase 1 Complete**: Ollama NDJSON ストリーミング応答（AsyncGenerator ベース、リアルタイムトークン出力）
-- **Phase 2 Complete**: コンテキストウィンドウ管理（TokenCounter CJK対応、ContextManager 自動トリミング、ModelRegistry 動的ルックアップ）
-- **Phase 3 Complete**: プロバイダーフォールバック（CircuitBreaker + FallbackProvider、ラウンドロビン + sticky active）
-- **Phase 4 Complete**: モデル自動ルーティング（TaskClassifier キーワードスコアリング、ModelRouter 軽量/高性能モデル自動選択）
+**ローカル LLM 最適化（Phase 1–4）**
+
+- **Phase 1 Complete**: Ollama NDJSON ストリーミング応答（AsyncGenerator ベース）— テスト: 8 pass
+- **Phase 2 Complete**: コンテキストウィンドウ管理（TokenCounter CJK 対応、ContextManager 自動トリミング）— テスト: 24 pass
+- **Phase 3 Complete**: プロバイダーフォールバック（CircuitBreaker + FallbackProvider）— テスト: 21 pass
+- **Phase 4 Complete**: モデル自動ルーティング（TaskClassifier、ModelRouter）— テスト: 34 pass
 
 **安全性・UX（Phase 5–6）**
-- **Phase 5 Complete**: チェックポイント＆ロールバック（Git ベース自動スナップショット、undo/rollback/diff コマンド、maxCheckpoints プルーニング）
-- **Phase 6 Complete**: Diff プレビュー＆承認フロー（unified diff 表示、auto/confirm/selective 3モード、リスクレベル別承認制御）
 
-**拡張性・スケーラビリティ（Phase 7–8）**
-- **Phase 7 Complete**: ライフサイクルフック（HookManager、FileHookLoader、11イベント対応: session/tool/iteration/response/mcp）
-- **Phase 8 Complete**: サブエージェント並列実行（SubAgentManager、最大6タスク同時委譲、explorer/worker/reviewer ロール別権限）
+- **Phase 5 Complete**: チェックポイント＆ロールバック（Git ベース自動スナップショット）— テスト: 18 pass
+- **Phase 6 Complete**: Diff プレビュー＆承認フロー（auto/confirm/selective 3モード）— テスト: 33 pass
 
-**エコシステム連携（Phase 9）**
-- **Phase 9 Complete**: MCP 統合（JSON-RPC 2.0 over stdio、MCPConnection ハンドシェイク、MCPClientManager 複数サーバー管理、ツール名前空間自動登録 `mcp_{server}_{tool}`）
+**拡張性（Phase 7–9）**
 
-**セキュリティ（全フェーズ）**
-- Multi-agent coordination: Coordinator / Worker パターン、優先度キューイング
-- Access control: RBAC、監査ログ
-- Sandbox execution environment: SandboxEnvironment
-- Modern TUI with React Ink
-- Undercover Mode for commercial use（AI 参照除去）
-- Buddy Mode: 18種 AI ペット、感情・空腹・幸福度システム
-- 通知システム: OS通知 / Pushover / Telegram、Quiet Hours 対応
+- **Phase 7 Complete**: ライフサイクルフック（11イベント: session/tool/iteration/response/mcp）— テスト: 22 pass
+- **Phase 8 Complete**: サブエージェント並列実行（最大6タスク同時委譲、explorer/worker/reviewer ロール）— テスト: 20 pass
+- **Phase 9 Complete**: MCP 統合（JSON-RPC 2.0 over stdio、ツール名前空間 `mcp_{server}_{tool}`）— テスト: 22 pass
 
-### Bug Fixes（全23件修正済み）
+### Bug Fixes（全23件）
 
-**クリティカル（P0）**
-- ConfigManager: インポートパス `./LLMProvider.js` → `../providers/LLMProvider.js` 修正
-- package.json: 余分な `}` による無効 JSON 修正
-- AccessControl: 認証バイパス脆弱性（`hasPermission` 境界条件）修正
-- GrepTool: シェルインジェクション脆弱性修正（引数サニタイズ強化）
-
-**重要（P1）**
+- ConfigManager: インポートパス修正
+- package.json: 無効 JSON 修正
+- AccessControl: 認証バイパス脆弱性修正
+- GrepTool: シェルインジェクション脆弱性修正
 - AgentLoop: JSON パースエラー時のクラッシュ修正
-- AutoDream: O(n²) 矛盾検出アルゴリズム → O(n log n) に最適化
-- SandboxEnvironment: 変数シャドウイングバグ修正
-- KAIROSDaemon: PID チェックで自プロセス除外（テスト環境誤検出防止）
-- FileHookLoader: ファイル未存在（return 0）と JSON 構文エラー（throw）の分離
-- daemon.test.ts: テスト用ディレクトリを `process.cwd()` 固定 → `os.tmpdir()` + `mkdtemp()` に変更
-
-**セキュリティ（6件）**
-- パスワードハッシュアルゴリズム: SHA-256 → scrypt に強化
-- その他セキュリティ脆弱性 5件修正
-
-**パフォーマンス改善（4件）**
-- メモリ圧縮効率の改善
-- 並列ツール実行の最適化
-- 通知タイミングの修正
-- 型定義の修正
+- AutoDream: O(n²) 矛盾検出 → O(n log n) に最適化
+- パスワードハッシュ: SHA-256 → scrypt に強化
+- その他バグ・セキュリティ修正 16 件
 
 ### Test Coverage
 
-- **全315テスト / 671アサーション / 0 失敗**
-- Phase 1–9 対応テスト: 202 pass（streaming, context, fallback, router, checkpoint, diff, hooks, sub-agent, mcp）
-- ツール・プロバイダー・セキュリティ・ベンチマーク等: 113 pass
+- 315 pass / 671 アサーション / 0 失敗
 
-### Providers
-
-- OpenAI（推奨）
-- Ollama（オフライン・無料）
-- LM Studio（オフライン・無料）
-- Z.AI / GLM（コーディング特化）
-- LiteLLM（100+ プロバイダー統合プロキシ）
-
-### Documentation
-
-- README.md（プロジェクト概要・クイックスタート）
-- docs/ARCHITECTURE.md（内部設計・パイプライン解説）
-- docs/USER_GUIDE.md（ユーザー向け機能ガイド）
-- docs/ADD_PROVIDER.md（プロバイダー追加ガイド）
-- docs/guide/getting-started.md（セットアップ手順）
-- docs/guide/features.md（機能詳細）
-- docs/guide/usage.md（コマンド・ツール一覧）
-- docs/guide/troubleshooting.md（トラブルシューティング）
-- AGENTS.md（AI エージェント向け開発者ガイド）
-
-### Breaking Changes
-
-- None — Initial stable release
-
-### Known Issues
-
-- None — All major features implemented and tested
+---
 
 ## [0.9.0] - 2026-04-08
 
 ### Added
 
-- Buddy mode implementation
-- Notification system with OS support
-- React Ink TUI components
+- Buddy mode（18種 AI ペット、感情・空腹・幸福度システム）
+- 通知システム（OS通知 / Pushover / Telegram、Quiet Hours 対応）
+- React Ink TUI コンポーネント
 - Multi-agent coordinator
-- Access control system
-
-### Changed
-
-- Improved memory compression efficiency
-- Enhanced daemon reliability
-- Optimized tool execution
+- Access control（RBAC、監査ログ）
 
 ## [0.8.0] - 2026-04-05
 
 ### Added
 
-- AutoDream implementation
-- Daemon mode with tick system
+- AutoDream（メモリ統合・矛盾解消・洞察抽出）
+- KAIROS デーモン（Tick / Heartbeat システム）
 - Parallel tool executor
-- Notification manager
-
-### Changed
-
-- Refactored agent loop for better performance
-- Improved memory context management
+- 通知マネージャ
 
 ## [0.7.0] - 2026-04-02
 
 ### Added
 
-- Memory compression algorithms
-- Topic-based memory organization
-- Auto-compact feature
-- Search functionality
-
-### Changed
-
-- Enhanced tool system with more tools
-- Improved error handling
+- メモリ圧縮アルゴリズム
+- トピック別メモリ組織化
+- Auto-compact 機能
 
 ## [0.6.0] - 2026-03-30
 
 ### Added
 
-- Daemon mode basics
-- Tick / Heartbeat system
-- Proactive judgment system
-- Event system
-
-### Changed
-
-- Restructured project for scalability
-- Added configuration management
+- デーモンモード基盤
+- Tick / イベントシステム
+- 設定管理
 
 ## [0.5.0] - 2026-03-25
 
 ### Added
 
-- Basic agent loop implementation
-- 7 core tools (Bash, File, Grep, Git, Edit, Search)
-- Simple memory system
-- CLI interface
-
-### Changed
-
-- Initial release
+- 基本エージェントループ
+- 7 コアツール（Bash, File, Grep, Git, Edit, Search）
+- シンプルメモリ・CLI インタフェース
 
 ---
 
@@ -207,18 +195,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 LunaCode follows [Semantic Versioning](https://semver.org/):
 
-- **MAJOR**: Incompatible API changes
-- **MINOR**: Backwards-compatible functionality additions
-- **PATCH**: Backwards-compatible bug fixes
+- **MAJOR**: 非互換 API 変更
+- **MINOR**: 後方互換の機能追加
+- **PATCH**: 後方互換のバグ修正
 
 ## Release Process
 
-1. Update version in `package.json`
-2. Update CHANGELOG.md
-3. Create Git tag
-4. Create GitHub release
-5. Update documentation
-6. Announce release
+1. `package.json` のバージョンを更新
+2. `CHANGELOG.md` を更新
+3. Git タグを打つ（`git tag vX.Y.Z && git push --tags`）
+4. GitHub Release を作成
 
 ## Future Plans
 

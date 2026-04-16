@@ -1,6 +1,6 @@
 {
   "name": "lunacode",
-  "version": "1.0.0",
+  "version": "2.4.0",
   "description": "KAIROS - Claude Code inspired autonomous coding agent with 24/7 autonomous capabilities",
   "type": "module",
   "bin": {
