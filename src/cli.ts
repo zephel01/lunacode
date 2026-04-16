@@ -1780,10 +1780,12 @@ async function handleTestProvider(
 function buildProgram(): Command {
   const program = new Command();
 
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { version } = require("../package.json") as { version: string };
   program
     .name("lunacode")
     .description("LunaCode — KAIROS Autonomous Coding Agent")
-    .version("2.2.0");
+    .version(version);
 
   // ---- init ----
   program
