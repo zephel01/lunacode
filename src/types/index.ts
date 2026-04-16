@@ -665,3 +665,52 @@ export interface AutoGitWorkflowResult {
   totalDurationMs: number;
   summary: string; // 人間が読めるサマリー
 }
+
+// ─── Phase 14: 自己評価・自己修正ループ ───────────────────────────────────────
+
+/** .kairos/config.json の "selfEval" セクション */
+export interface SelfEvalConfig {
+  /** 機能を有効にするか（デフォルト: false） */
+  enabled?: boolean;
+  /**
+   * 合格とみなすスコアの閾値（0–10, デフォルト: 7）
+   * スコアがこの値以上なら修正ループに入らない
+   */
+  scoreThreshold?: number;
+  /** 修正ループの最大回数（デフォルト: 2） */
+  maxRounds?: number;
+  /**
+   * 評価対象となる最小レスポンス文字数（デフォルト: 50）
+   * これより短い応答は評価をスキップする
+   */
+  minResponseLength?: number;
+  /** サブエージェントにも適用するか（デフォルト: false） */
+  evaluateSubAgents?: boolean;
+}
+
+/** LLM が返す評価結果（JSON） */
+export interface EvalJudgment {
+  score: number; // 0–10
+  passed: boolean; // score >= threshold
+  issues: string[]; // 指摘事項（passed=false のとき）
+  suggestion: string; // 修正方針の一言サマリー
+}
+
+/** 1 ラウンドの修正結果 */
+export interface CorrectionRound {
+  round: number;
+  judgment: EvalJudgment;
+  correctedResponse: string;
+  durationMs: number;
+}
+
+/** SelfEvaluator.evaluate() の全体結果 */
+export interface SelfEvalResult {
+  enabled: boolean;
+  skipped: boolean; // minResponseLength 未満などでスキップした場合
+  initialScore: number;
+  finalScore: number;
+  rounds: number; // 実際に行った修正ラウンド数
+  corrections: CorrectionRound[];
+  finalResponse: string;
+}

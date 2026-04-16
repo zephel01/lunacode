@@ -1,7 +1,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { LLMProviderConfig } from "../providers/LLMProvider.js";
-import { AutoGitConfig } from "../types/index.js";
+import { AutoGitConfig, SelfEvalConfig } from "../types/index.js";
 
 export interface CheckpointConfig {
   enabled?: boolean;
@@ -82,6 +82,8 @@ export interface LunaCodeConfig {
   mcp?: MCPConfig;
   // 自動Gitワークフロー設定
   autoGit?: AutoGitConfig;
+  // 自己評価・自己修正ループ設定（Phase 14）
+  selfEval?: SelfEvalConfig;
   // 拡張設定（プラグイン等からの任意セクション）
   [key: string]: unknown;
 }

@@ -50,6 +50,13 @@
       }
     ]
   },
+  "selfEval": {
+    "enabled": false,
+    "scoreThreshold": 7,
+    "maxRounds": 2,
+    "minResponseLength": 50,
+    "evaluateSubAgents": false
+  },
   "autoGit": {
     "enabled": false,
     "mode": "commit-and-test",

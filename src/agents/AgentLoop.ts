@@ -26,6 +26,7 @@ import { CheckpointManager } from "./CheckpointManager.js";
 import { ApprovalManager } from "./ApprovalManager.js";
 import { MCPClientManager } from "../mcp/MCPClientManager.js";
 import { AutoGitWorkflow } from "./AutoGitWorkflow.js";
+import { SelfEvaluator } from "./SelfEvaluator.js";
 
 export class AgentLoop {
   private toolRegistry: ToolRegistry;
@@ -59,6 +60,8 @@ export class AgentLoop {
   private mcpManager?: MCPClientManager;
   // 自動 Git ワークフロー
   private autoGitWorkflow?: AutoGitWorkflow;
+  // Phase 14: 自己評価・自己修正
+  private selfEvaluator?: SelfEvaluator;
   // 長期メモリ（ベクトル検索）
   private longTermMemory?: LongTermMemory;
   // 現在のセッション ID（長期メモリのタグ付けに使用）
@@ -251,6 +254,25 @@ export class AgentLoop {
       } catch (error) {
         console.warn("⚠️ Failed to initialize AutoGitWorkflow:", error);
       }
+    }
+
+    // Phase 14: 自己評価・自己修正ループの初期化
+    try {
+      const selfEvalConfig = this.configManager.get("selfEval") as
+        | import("../types/index.js").SelfEvalConfig
+        | undefined;
+      if (selfEvalConfig?.enabled) {
+        this.selfEvaluator = SelfEvaluator.fromConfig(
+          this
+            .llmProvider as import("../providers/LLMProvider.js").ILLMProvider,
+          selfEvalConfig,
+        );
+        console.log(
+          `🔍 SelfEvaluator enabled (threshold: ${selfEvalConfig.scoreThreshold ?? 7}, maxRounds: ${selfEvalConfig.maxRounds ?? 2})`,
+        );
+      }
+    } catch (error) {
+      console.warn("⚠️ Failed to initialize SelfEvaluator:", error);
     }
 
     // 長期メモリ（ベクトル検索）の初期化
@@ -898,6 +920,30 @@ Do NOT explain. Actually call the tool now.`;
         this.state.phase = "ERROR";
         response = `An error occurred: ${error instanceof Error ? error.message : String(error)}`;
         break;
+      }
+    }
+
+    // Phase 14: 自己評価・自己修正ループ
+    if (this.selfEvaluator && response.length > 0) {
+      try {
+        const task =
+          [...this.messages].reverse().find((m) => m.role === "user")
+            ?.content ?? "";
+        const evalResult = await this.selfEvaluator.evaluate(
+          {
+            task: typeof task === "string" ? task : String(task),
+            response,
+            messages: this
+              .messages as import("../providers/LLMProvider.js").ChatMessage[],
+          },
+          this.isSubAgent,
+        );
+        if (!evalResult.skipped) {
+          console.log(SelfEvaluator.formatResult(evalResult));
+        }
+        response = evalResult.finalResponse;
+      } catch (error) {
+        console.warn("⚠️ SelfEvaluator failed:", error);
       }
     }
 
