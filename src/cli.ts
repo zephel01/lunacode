@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { Command, type OptionValues } from "commander";
 import { AgentLoop } from "./agents/AgentLoop.js";
 import { ConfigManager } from "./config/ConfigManager.js";
 import { LLMProviderFactory } from "./providers/LLMProviderFactory.js";
@@ -1660,274 +1661,16 @@ async function handleSkillCommand(kairosPath: string, args: string[]) {
 }
 
 // ========================================
-// --skill オプション対応（自動実行モードとの統合）
+// ワンショットクエリ実行
 // ========================================
 
-async function main() {
-  const args = process.argv.slice(2);
-  const command = args[0];
-
-  // .kairosディレクトリのパスを取得
-  const kairosPath = path.join(process.cwd(), ".kairos");
-
-  try {
-    await fs.mkdir(kairosPath, { recursive: true });
-  } catch (error) {
-    console.error("Failed to create .kairos directory:", error);
-    process.exit(1);
-  }
-
-  // init コマンド: config.json を生成
-  if (command === "init") {
-    await handleInitCommand(kairosPath, args);
-    process.exit(0);
-  }
-
-  // config コマンド: 設定表示・変更
-  if (command === "config") {
-    await handleConfigCommand(kairosPath, args);
-    process.exit(0);
-  }
-
-  // 対話モード: lunacode chat
-  if (command === "chat" || command === "-i" || command === "--interactive") {
-    await handleChatMode(kairosPath);
-    return; // handleChatMode は内部で process.exit する
-  }
-
-  // 自動実行モード: lunacode --auto "タスク" [--skill name] [--rounds N]
-  if (command === "--auto" || command === "-a" || command === "auto") {
-    const autoQuery = args.slice(1).join(" ");
-    if (!autoQuery) {
-      console.error('Usage: lunacode --auto "テトリスの作成"');
-      process.exit(1);
-    }
-    // --rounds N オプション
-    const roundsIdx = args.indexOf("--rounds");
-    const maxRounds =
-      roundsIdx >= 0 ? parseInt(args[roundsIdx + 1], 10) || 10 : 10;
-    // --skill name オプション
-    const skillIdx = args.indexOf("--skill");
-    const skillName = skillIdx >= 0 ? args[skillIdx + 1] : undefined;
-    // オプション引数を除外
-    const queryParts = args
-      .slice(1)
-      .filter(
-        (a, i) =>
-          a !== "--rounds" &&
-          a !== "--skill" &&
-          args[i] !== "--rounds" &&
-          args[i] !== "--skill",
-      );
-    await handleAutoMode(
-      kairosPath,
-      queryParts.join(" "),
-      maxRounds,
-      skillName,
-    );
-    process.exit(0);
-  }
-
-  // スキル指定ショートカット: lunacode --skill xlsx "売上レポート"
-  if (command === "--skill") {
-    const skillName = args[1];
-    const query = args.slice(2).join(" ");
-    if (!skillName || !query) {
-      console.error('Usage: lunacode --skill <skill-name> "タスク"');
-      process.exit(1);
-    }
-    const roundsIdx = args.indexOf("--rounds");
-    const maxRounds =
-      roundsIdx >= 0 ? parseInt(args[roundsIdx + 1], 10) || 10 : 10;
-    await handleAutoMode(kairosPath, query, maxRounds, skillName);
-    process.exit(0);
-  }
-
-  // 引数なし → 対話モード
-  if (!command) {
-    await handleChatMode(kairosPath);
-    return;
-  }
-
-  // ヘルプコマンド
-  if (command === "--help" || command === "-h" || command === "help") {
-    console.log(`
-LunaCode - KAIROS Autonomous Coding Agent
-
-Usage:
-  lunacode [command] [options]
-
-Commands:
-  help, --help     Show this help message
-  chat, -i         Interactive mode (REPL) — 対話モード
-  --auto, -a       Autonomous mode — 自動でタスク完了まで実行
-    --rounds <N>     Maximum rounds (default: 10)
-  init             Generate .kairos/config.json (recommended first step)
-    --provider <p>   Provider: openai, ollama, lmstudio, litellm, zai
-    --force          Overwrite existing config.json
-  config           Configuration management
-    show / set <k> <v> / models
-  provider         List available LLM providers
-  test-provider    Test LLM provider connection
-  daemon           Daemon mode (start / stop / status / restart / logs)
-  dream            Memory consolidation (run / history / status)
-  memory           Memory management (stats / search / compact / topics)
-  skill            Skill management (list / create / enable / disable)
-  buddy            AI pet companion
-  <query>          Single query to the agent
-
-Examples:
-  lunacode chat                          # 対話モード開始
-  lunacode --auto "テトリスの作成"         # 自動でタスク完了まで実行
-  lunacode --auto "REST API作成" --rounds 15
-  lunacode --skill xlsx "売上レポート作成"   # スキル指定で自動実行
-  lunacode skill list                    # インストール済みスキル一覧
-  lunacode skill create my-skill         # スキルテンプレート作成
-  lunacode "質問だけ聞きたい"               # ワンショット
-  lunacode init --provider ollama
-  lunacode config models
-
-Configuration (recommended):
-  .kairos/config.json   Per-project configuration (run 'lunacode init' to create)
-
-  Example config.json:
-    {
-      "llm": {
-        "provider": "ollama",
-        "ollama": { "baseUrl": "http://localhost:11434", "model": "llama3.1" }
-      }
-    }
-
-Environment Variables (fallback):
-  OPENAI_API_KEY / OPENAI_MODEL / OPENAI_BASE_URL
-  OLLAMA_BASE_URL / OLLAMA_MODEL
-  LMSTUDIO_BASE_URL / LMSTUDIO_MODEL
-  ZAI_API_KEY / ZAI_MODEL / ZAI_BASE_URL
-  LUNACODE_API_KEY (alternative for OpenAI)
-
-Documentation: https://github.com/zephel01/lunacode
-License: MIT
-    `);
-    process.exit(0);
-  }
-
-  // プロバイダー一覧表示
-  if (command === "provider") {
-    console.log("\nAvailable LLM Providers:\n");
-    const providers = await import("./providers/LLMProviderFactory.js");
-    const { LLMProviderFactory } = providers;
-    const availableProviders = LLMProviderFactory.getAvailableProviders();
-    availableProviders.forEach((provider) => {
-      const description = LLMProviderFactory.getProviderDescription(provider);
-      console.log(`\n${provider.toUpperCase()}`);
-      console.log(`  ${description}\n`);
-    });
-    process.exit(0);
-  }
-
-  // プロバイダーテスト
-  if (command === "test-provider") {
-    const isQuick = args.includes("--quick");
-    const saveReport = args.includes("--save");
-    const reportPath = (() => {
-      const idx = args.indexOf("--output");
-      if (idx !== -1 && args[idx + 1]) return args[idx + 1];
-      return path.join(kairosPath, `test-report-${Date.now()}.json`);
-    })();
-
-    // 設定マネージャーの初期化
-    const configManager = new ConfigManager(kairosPath);
-    await configManager.load();
-
-    // プロバイダーの作成
-    let provider;
-    try {
-      const providerConfig = configManager.getLLMProviderConfig();
-      provider = LLMProviderFactory.createProvider(providerConfig);
-      console.log(`\n📡 Provider: ${provider.getType()}`);
-      console.log(`🤖 Model: ${provider.getDefaultModel()}\n`);
-    } catch (error) {
-      console.error("Failed to initialize LLM provider:", error);
-      console.error("\nPlease set one of the following environment variables:");
-      console.error("  - OPENAI_API_KEY (for OpenAI)");
-      console.error("  - ZAI_API_KEY (for Z.AI / GLM Coding Plan)");
-      console.error("  - OLLAMA_BASE_URL (for Ollama)");
-      console.error("  - LMSTUDIO_BASE_URL (for LM Studio)");
-      console.error("\nOr create a .kairos/config.json file.");
-      process.exit(1);
-    }
-
-    if (isQuick) {
-      // クイックテスト: 接続確認のみ
-      console.log("🧪 Quick connection test...\n");
-      const agent = new AgentLoop(provider, kairosPath, configManager);
-      await agent.initialize();
-      try {
-        const spinner = new Spinner();
-        spinner.start("接続テスト実行中...");
-        const response = await agent.processUserInput("Test connection");
-        spinner.stop();
-        console.log("\n" + "=".repeat(80));
-        console.log("\n✅ Connection successful!\n");
-        console.log(response.substring(0, 200));
-        console.log("\n" + "=".repeat(80) + "\n");
-      } catch (error) {
-        console.error("❌ Connection failed:", error);
-        process.exit(1);
-      }
-    } else {
-      // フルテスト: 全機能テストスイート
-      const tester = new ProviderTester(provider, kairosPath, configManager);
-      const report = await tester.runAll();
-      tester.printReport(report);
-
-      if (saveReport) {
-        await tester.saveReport(report, reportPath);
-        console.log(`\n💾 Report saved to: ${reportPath}\n`);
-      }
-
-      const failed = report.results.filter((r) => r.status === "fail").length;
-      process.exit(failed > 0 ? 1 : 0);
-    }
-
-    process.exit(0);
-  }
-
-  // デーモンモード（Phase 2）
-  if (command === "daemon") {
-    await handleDaemonCommand(args.slice(1));
-    process.exit(0);
-  }
-
-  // ドリームモード（Phase 2）
-  if (command === "dream") {
-    await handleDreamCommand(args.slice(1));
-    process.exit(0);
-  }
-
-  // Buddyモード（Phase 3）
-  if (command === "buddy") {
-    await handleBuddyCommand(args.slice(1));
-    process.exit(0);
-  }
-
-  // メモリ管理コマンド（Phase 1）
-  if (command === "memory") {
-    await handleMemoryCommand(args.slice(1));
-    process.exit(0);
-  }
-
-  // スキル管理コマンド
-  if (command === "skill" || command === "skills") {
-    await handleSkillCommand(kairosPath, args.slice(1));
-    process.exit(0);
-  }
-
-  // 設定マネージャーの初期化
+async function handleOneshotQuery(
+  kairosPath: string,
+  query: string,
+): Promise<void> {
   const configManager = new ConfigManager(kairosPath);
   await configManager.load();
 
-  // プロバイダーの作成
   let provider;
   try {
     const providerConfig = configManager.getLLMProviderConfig();
@@ -1942,18 +1685,8 @@ License: MIT
     process.exit(1);
   }
 
-  // エージェントの初期化
   const agent = new AgentLoop(provider, kairosPath, configManager);
   await agent.initialize();
-
-  // 直接クエリ
-  const query = args.join(" ");
-  if (!query) {
-    console.error("Error: No query provided");
-    console.error('Usage: lunacode "your query"');
-    console.error("Or use: lunacode help");
-    process.exit(1);
-  }
 
   console.log(`🚀 LunaCode Processing: "${query}"\n`);
 
@@ -1976,7 +1709,422 @@ License: MIT
   }
 }
 
-main().catch((error) => {
+// ========================================
+// プロバイダーテスト
+// ========================================
+
+async function handleTestProvider(
+  kairosPath: string,
+  options: { quick?: boolean; save?: boolean; output?: string },
+): Promise<void> {
+  const configManager = new ConfigManager(kairosPath);
+  await configManager.load();
+
+  let provider;
+  try {
+    const providerConfig = configManager.getLLMProviderConfig();
+    provider = LLMProviderFactory.createProvider(providerConfig);
+    console.log(`\n📡 Provider: ${provider.getType()}`);
+    console.log(`🤖 Model: ${provider.getDefaultModel()}\n`);
+  } catch (error) {
+    console.error("Failed to initialize LLM provider:", error);
+    console.error("\nPlease set one of the following environment variables:");
+    console.error("  - OPENAI_API_KEY (for OpenAI)");
+    console.error("  - ZAI_API_KEY (for Z.AI / GLM Coding Plan)");
+    console.error("  - OLLAMA_BASE_URL (for Ollama)");
+    console.error("  - LMSTUDIO_BASE_URL (for LM Studio)");
+    console.error("\nOr create a .kairos/config.json file.");
+    process.exit(1);
+  }
+
+  if (options.quick) {
+    console.log("🧪 Quick connection test...\n");
+    const agent = new AgentLoop(provider, kairosPath, configManager);
+    await agent.initialize();
+    try {
+      const spinner = new Spinner();
+      spinner.start("接続テスト実行中...");
+      const response = await agent.processUserInput("Test connection");
+      spinner.stop();
+      console.log("\n" + "=".repeat(80));
+      console.log("\n✅ Connection successful!\n");
+      console.log(response.substring(0, 200));
+      console.log("\n" + "=".repeat(80) + "\n");
+    } catch (error) {
+      console.error("❌ Connection failed:", error);
+      process.exit(1);
+    }
+  } else {
+    const reportPath =
+      options.output || path.join(kairosPath, `test-report-${Date.now()}.json`);
+    const tester = new ProviderTester(provider, kairosPath, configManager);
+    const report = await tester.runAll();
+    tester.printReport(report);
+
+    if (options.save) {
+      await tester.saveReport(report, reportPath);
+      console.log(`\n💾 Report saved to: ${reportPath}\n`);
+    }
+
+    const failed = report.results.filter((r) => r.status === "fail").length;
+    process.exit(failed > 0 ? 1 : 0);
+  }
+
+  process.exit(0);
+}
+
+// ========================================
+// commander.js によるコマンド定義
+// ========================================
+
+function buildProgram(): Command {
+  const program = new Command();
+
+  program
+    .name("lunacode")
+    .description("LunaCode — KAIROS Autonomous Coding Agent")
+    .version("2.2.0");
+
+  // ---- init ----
+  program
+    .command("init")
+    .description("Generate .kairos/config.json (recommended first step)")
+    .option(
+      "-p, --provider <provider>",
+      "Provider: openai, ollama, lmstudio, litellm, zai",
+    )
+    .option("-f, --force", "Overwrite existing config.json")
+    .action(async (_opts: OptionValues, cmd: Command) => {
+      const kairosPath = path.join(process.cwd(), ".kairos");
+      await ensureKairosDir(kairosPath);
+      // handleInitCommand は生の args 配列を期待するので変換
+      const rawArgs: string[] = cmd.parent?.args ?? [];
+      await handleInitCommand(kairosPath, ["init", ...rawArgs]);
+    });
+
+  // ---- config ----
+  const configCmd = program
+    .command("config")
+    .description("Configuration management");
+
+  configCmd
+    .command("show")
+    .description("Show current configuration")
+    .action(async () => {
+      const kairosPath = path.join(process.cwd(), ".kairos");
+      await ensureKairosDir(kairosPath);
+      await handleConfigCommand(kairosPath, ["config", "show"]);
+    });
+
+  configCmd
+    .command("set <key> <value>")
+    .description("Set a configuration value (e.g. llm.provider ollama)")
+    .action(async (key: string, value: string) => {
+      const kairosPath = path.join(process.cwd(), ".kairos");
+      await ensureKairosDir(kairosPath);
+      await handleConfigCommand(kairosPath, ["config", "set", key, value]);
+    });
+
+  configCmd
+    .command("models")
+    .description("List available models for current provider")
+    .action(async () => {
+      const kairosPath = path.join(process.cwd(), ".kairos");
+      await ensureKairosDir(kairosPath);
+      await handleConfigCommand(kairosPath, ["config", "models"]);
+    });
+
+  // config をサブコマンド無しで実行 → show
+  configCmd.action(async () => {
+    const kairosPath = path.join(process.cwd(), ".kairos");
+    await ensureKairosDir(kairosPath);
+    await handleConfigCommand(kairosPath, ["config", "show"]);
+  });
+
+  // ---- chat ----
+  program
+    .command("chat")
+    .alias("interactive")
+    .description("Interactive mode (REPL) — 対話モード")
+    .action(async () => {
+      const kairosPath = path.join(process.cwd(), ".kairos");
+      await ensureKairosDir(kairosPath);
+      await handleChatMode(kairosPath);
+    });
+
+  // ---- auto ----
+  program
+    .command("auto <query...>")
+    .description("Autonomous mode — 自動でタスク完了まで実行")
+    .option("-r, --rounds <n>", "Maximum rounds", "10")
+    .option("-s, --skill <name>", "Activate a skill for the task")
+    .action(async (queryParts: string[], opts: OptionValues) => {
+      const kairosPath = path.join(process.cwd(), ".kairos");
+      await ensureKairosDir(kairosPath);
+      const maxRounds = parseInt(opts.rounds as string, 10) || 10;
+      await handleAutoMode(
+        kairosPath,
+        queryParts.join(" "),
+        maxRounds,
+        opts.skill as string | undefined,
+      );
+    });
+
+  // ---- provider ----
+  program
+    .command("provider")
+    .description("List available LLM providers")
+    .action(async () => {
+      console.log("\nAvailable LLM Providers:\n");
+      const availableProviders = LLMProviderFactory.getAvailableProviders();
+      availableProviders.forEach((p) => {
+        const description = LLMProviderFactory.getProviderDescription(p);
+        console.log(`\n${p.toUpperCase()}`);
+        console.log(`  ${description}\n`);
+      });
+    });
+
+  // ---- test-provider ----
+  program
+    .command("test-provider")
+    .description("Test LLM provider connection")
+    .option("-q, --quick", "Quick connection test only")
+    .option("--save", "Save test report to file")
+    .option("-o, --output <path>", "Report output path")
+    .action(async (opts: OptionValues) => {
+      const kairosPath = path.join(process.cwd(), ".kairos");
+      await ensureKairosDir(kairosPath);
+      await handleTestProvider(kairosPath, opts);
+    });
+
+  // ---- daemon ----
+  const daemonCmd = program
+    .command("daemon")
+    .description("Daemon mode management");
+
+  for (const sub of ["start", "stop", "status", "restart", "logs"] as const) {
+    daemonCmd
+      .command(sub)
+      .description(`${sub.charAt(0).toUpperCase() + sub.slice(1)} the daemon`)
+      .option("--provider <name>", "LLM provider to use")
+      .action(async (opts: OptionValues) => {
+        const rawArgs: string[] = [sub];
+        if (opts.provider) rawArgs.push("--provider", opts.provider as string);
+        await handleDaemonCommand(rawArgs);
+      });
+  }
+
+  daemonCmd.action(async () => {
+    await handleDaemonCommand(["start"]);
+  });
+
+  // ---- dream ----
+  const dreamCmd = program
+    .command("dream")
+    .description("Memory consolidation (dream mode)");
+
+  for (const sub of ["run", "history", "status"] as const) {
+    dreamCmd
+      .command(sub)
+      .description(
+        `${sub === "run" ? "Run dream consolidation" : sub === "history" ? "Show dream history" : "Show dream status"}`,
+      )
+      .action(async () => {
+        await handleDreamCommand([sub]);
+      });
+  }
+
+  dreamCmd.action(async () => {
+    await handleDreamCommand(["run"]);
+  });
+
+  // ---- buddy ----
+  const buddyCmd = program.command("buddy").description("AI pet companion");
+
+  buddyCmd
+    .command("info")
+    .description("Show buddy info")
+    .action(async () => {
+      await handleBuddyCommand(["info"]);
+    });
+
+  buddyCmd
+    .command("call <name>")
+    .description("Call buddy by name")
+    .action(async (name: string) => {
+      await handleBuddyCommand(["call", name]);
+    });
+
+  buddyCmd
+    .command("talk <message...>")
+    .description("Talk to buddy")
+    .action(async (messageParts: string[]) => {
+      await handleBuddyCommand(["talk", ...messageParts]);
+    });
+
+  for (const sub of ["pet", "feed", "play", "sleep"] as const) {
+    buddyCmd
+      .command(sub)
+      .description(`${sub.charAt(0).toUpperCase() + sub.slice(1)} your buddy`)
+      .action(async () => {
+        await handleBuddyCommand([sub]);
+      });
+  }
+
+  buddyCmd
+    .command("types")
+    .description("List available pet types")
+    .action(async () => {
+      await handleBuddyCommand(["types"]);
+    });
+
+  buddyCmd
+    .command("create")
+    .description("Create a new buddy")
+    .option("-t, --type <type>", "Pet type (cat, dog, rabbit, etc.)")
+    .option("-n, --name <name>", "Pet name")
+    .action(async (opts: OptionValues) => {
+      const buddyArgs: string[] = ["create"];
+      if (opts.type) buddyArgs.push("--type", opts.type as string);
+      if (opts.name) buddyArgs.push("--name", opts.name as string);
+      await handleBuddyCommand(buddyArgs);
+    });
+
+  buddyCmd.action(async () => {
+    await handleBuddyCommand(["info"]);
+  });
+
+  // ---- memory ----
+  const memoryCmd = program.command("memory").description("Memory management");
+
+  memoryCmd
+    .command("stats")
+    .description("Show memory statistics")
+    .action(async () => {
+      await handleMemoryCommand(["memory", "stats"]);
+    });
+
+  memoryCmd
+    .command("search <query...>")
+    .description("Search memory")
+    .action(async (queryParts: string[]) => {
+      await handleMemoryCommand(["memory", "search", ...queryParts]);
+    });
+
+  memoryCmd
+    .command("compact")
+    .description("Compact memory")
+    .action(async () => {
+      await handleMemoryCommand(["memory", "compact"]);
+    });
+
+  memoryCmd
+    .command("topics")
+    .description("List topics")
+    .action(async () => {
+      await handleMemoryCommand(["memory", "topics"]);
+    });
+
+  memoryCmd.action(async () => {
+    await handleMemoryCommand(["memory", "stats"]);
+  });
+
+  // ---- skill ----
+  const skillCmd = program
+    .command("skill")
+    .alias("skills")
+    .description("Skill management");
+
+  skillCmd
+    .command("list")
+    .alias("ls")
+    .description("List installed skills")
+    .action(async () => {
+      const kairosPath = path.join(process.cwd(), ".kairos");
+      await ensureKairosDir(kairosPath);
+      await handleSkillCommand(kairosPath, ["list"]);
+    });
+
+  skillCmd
+    .command("create <name> [description]")
+    .alias("new")
+    .description("Create a new skill template")
+    .action(async (name: string, description?: string) => {
+      const kairosPath = path.join(process.cwd(), ".kairos");
+      await ensureKairosDir(kairosPath);
+      const skillArgs = ["create", name];
+      if (description) skillArgs.push(description);
+      await handleSkillCommand(kairosPath, skillArgs);
+    });
+
+  skillCmd
+    .command("enable <name>")
+    .description("Enable a skill")
+    .action(async (name: string) => {
+      const kairosPath = path.join(process.cwd(), ".kairos");
+      await ensureKairosDir(kairosPath);
+      await handleSkillCommand(kairosPath, ["enable", name]);
+    });
+
+  skillCmd
+    .command("disable <name>")
+    .description("Disable a skill")
+    .action(async (name: string) => {
+      const kairosPath = path.join(process.cwd(), ".kairos");
+      await ensureKairosDir(kairosPath);
+      await handleSkillCommand(kairosPath, ["disable", name]);
+    });
+
+  skillCmd
+    .command("show <name>")
+    .alias("info")
+    .description("Show skill details")
+    .action(async (name: string) => {
+      const kairosPath = path.join(process.cwd(), ".kairos");
+      await ensureKairosDir(kairosPath);
+      await handleSkillCommand(kairosPath, ["show", name]);
+    });
+
+  skillCmd.action(async () => {
+    const kairosPath = path.join(process.cwd(), ".kairos");
+    await ensureKairosDir(kairosPath);
+    await handleSkillCommand(kairosPath, ["list"]);
+  });
+
+  // ---- デフォルト: 引数なしで chat, 不明な引数はワンショットクエリ ----
+  program.action(async () => {
+    const kairosPath = path.join(process.cwd(), ".kairos");
+    await ensureKairosDir(kairosPath);
+    await handleChatMode(kairosPath);
+  });
+
+  // 未知のコマンドはワンショットクエリとして扱う
+  program.on("command:*", async (operands: string[]) => {
+    const kairosPath = path.join(process.cwd(), ".kairos");
+    await ensureKairosDir(kairosPath);
+    const query = operands.join(" ");
+    await handleOneshotQuery(kairosPath, query);
+  });
+
+  return program;
+}
+
+/** .kairos ディレクトリを確保 */
+async function ensureKairosDir(kairosPath: string): Promise<void> {
+  try {
+    await fs.mkdir(kairosPath, { recursive: true });
+  } catch (error) {
+    console.error("Failed to create .kairos directory:", error);
+    process.exit(1);
+  }
+}
+
+// ========================================
+// エントリポイント
+// ========================================
+
+const program = buildProgram();
+program.parseAsync(process.argv).catch((error: unknown) => {
   console.error("Fatal error:", error);
   process.exit(1);
 });
