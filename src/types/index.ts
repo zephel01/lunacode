@@ -714,3 +714,44 @@ export interface SelfEvalResult {
   corrections: CorrectionRound[];
   finalResponse: string;
 }
+
+// ─── Phase 15: モデルルーティング高度化 ──────────────────────────────────────
+
+/** タスクの種別（TaskClassifier が判定する） */
+export type TaskType =
+  | "code_generation"
+  | "code_review"
+  | "debugging"
+  | "summarization"
+  | "refactoring"
+  | "general";
+
+/** タスク種別ごとのルーティングルール */
+export interface RoutingRule {
+  /** 対象タスク種別 */
+  taskType: TaskType;
+  /** 使用するプロバイダー名（config.llm のキーに対応） */
+  provider: string;
+  /** 使用するモデル名（省略時はプロバイダーのデフォルト） */
+  model?: string;
+}
+
+/** .kairos/config.json の "routing" セクション */
+export interface RoutingConfig {
+  /** 機能を有効にするか（デフォルト: false） */
+  enabled?: boolean;
+  /**
+   * タスク種別ごとのルーティングルール。
+   * 最初にマッチしたルールが使われる。
+   * マッチしない場合は defaultProvider が使われる。
+   */
+  rules?: RoutingRule[];
+  /** ルールにマッチしないタスクで使うプロバイダー */
+  defaultProvider?: string;
+  /**
+   * フォールバックチェーン（プロバイダー名の配列）。
+   * ルーティング先が失敗した場合、この順序でエスカレーションする。
+   * 例: ["ollama", "openai"]
+   */
+  fallbackChain?: string[];
+}

@@ -50,6 +50,18 @@
       }
     ]
   },
+  "routing": {
+    "enabled": false,
+    "rules": [
+      { "taskType": "code_generation", "provider": "ollama", "model": "qwen2.5:14b" },
+      { "taskType": "debugging", "provider": "openai", "model": "gpt-4o-mini" },
+      { "taskType": "refactoring", "provider": "openai", "model": "gpt-4o-mini" },
+      { "taskType": "code_review", "provider": "openai", "model": "gpt-4o-mini" },
+      { "taskType": "summarization", "provider": "ollama", "model": "llama3.1" }
+    ],
+    "defaultProvider": "ollama",
+    "fallbackChain": ["ollama", "openai"]
+  },
   "selfEval": {
     "enabled": false,
     "scoreThreshold": 7,

@@ -27,6 +27,8 @@ import { ApprovalManager } from "./ApprovalManager.js";
 import { MCPClientManager } from "../mcp/MCPClientManager.js";
 import { AutoGitWorkflow } from "./AutoGitWorkflow.js";
 import { SelfEvaluator } from "./SelfEvaluator.js";
+import { ModelRouter } from "./ModelRouter.js";
+import { LLMProviderFactory } from "../providers/LLMProviderFactory.js";
 
 export class AgentLoop {
   private toolRegistry: ToolRegistry;
@@ -62,6 +64,8 @@ export class AgentLoop {
   private autoGitWorkflow?: AutoGitWorkflow;
   // Phase 14: 自己評価・自己修正
   private selfEvaluator?: SelfEvaluator;
+  // Phase 15: モデルルーティング高度化
+  private modelRouter?: ModelRouter;
   // 長期メモリ（ベクトル検索）
   private longTermMemory?: LongTermMemory;
   // 現在のセッション ID（長期メモリのタグ付けに使用）
@@ -273,6 +277,70 @@ export class AgentLoop {
       }
     } catch (error) {
       console.warn("⚠️ Failed to initialize SelfEvaluator:", error);
+    }
+
+    // Phase 15: モデルルーティング高度化の初期化
+    try {
+      const routingConfig = this.configManager.get("routing") as
+        | import("../types/index.js").RoutingConfig
+        | undefined;
+      if (routingConfig?.enabled) {
+        // 現在のプロバイダーを light/heavy 両方に使用（Phase 4 互換）
+        this.modelRouter = new ModelRouter(this.llmProvider, this.llmProvider);
+
+        // ルーティングルールおよびフォールバックチェーンで参照される全プロバイダーを収集
+        const providerNames = new Set<string>();
+        for (const rule of routingConfig.rules ?? []) {
+          providerNames.add(rule.provider);
+        }
+        for (const name of routingConfig.fallbackChain ?? []) {
+          providerNames.add(name);
+        }
+        if (routingConfig.defaultProvider) {
+          providerNames.add(routingConfig.defaultProvider);
+        }
+
+        // 各プロバイダーのインスタンスを作成してプールに登録
+        const providerPool = new Map<string, ILLMProvider>();
+        const llmSection = this.configManager.get("llm") as Record<
+          string,
+          unknown
+        >;
+        for (const name of providerNames) {
+          try {
+            // config.json の llm セクションからプロバイダー固有設定を読み取る
+            const providerSection =
+              (llmSection?.[name] as Record<string, unknown>) ?? {};
+            const providerConfig: import("../providers/LLMProvider.js").LLMProviderConfig =
+              {
+                type: name as import("../providers/LLMProvider.js").LLMProviderType,
+                apiKey: (providerSection.apiKey as string) ?? undefined,
+                baseUrl: (providerSection.baseUrl as string) ?? undefined,
+                model: (providerSection.model as string) ?? undefined,
+                temperature: (llmSection?.temperature as number) ?? undefined,
+                maxTokens: (llmSection?.maxTokens as number) ?? undefined,
+                useCodingEndpoint:
+                  (providerSection.useCodingEndpoint as boolean) ?? undefined,
+              };
+            const provider = LLMProviderFactory.createProvider(providerConfig);
+            providerPool.set(name, provider);
+          } catch (providerError) {
+            console.warn(
+              `⚠️ Failed to create provider '${name}' for routing:`,
+              providerError,
+            );
+          }
+        }
+
+        if (providerPool.size > 0) {
+          this.modelRouter.enableAdvancedRouting(routingConfig, providerPool);
+          console.log(
+            `🧭 Advanced routing enabled (${providerPool.size} provider(s), ${(routingConfig.rules ?? []).length} rule(s), fallback: [${(routingConfig.fallbackChain ?? []).join(" → ")}])`,
+          );
+        }
+      }
+    } catch (error) {
+      console.warn("⚠️ Failed to initialize ModelRouter:", error);
     }
 
     // 長期メモリ（ベクトル検索）の初期化
@@ -531,34 +599,72 @@ When you have enough information or the task is complete, provide a clear, conci
           },
         }));
 
+        // Phase 15: モデルルーティングでプロバイダーを選択
+        const lastUserMsg = this.messages
+          .filter((m) => m.role === "user")
+          .slice(-1)[0];
+        const routingInput =
+          typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
+        let activeProvider = this.llmProvider;
+
+        if (this.modelRouter) {
+          const routing = this.modelRouter.selectProvider(routingInput, {
+            iteration: this.state.iteration,
+          });
+          activeProvider = routing.provider;
+        }
+
         // Phase 2: コンテキストウィンドウ管理 — メッセージをコンテキスト上限内に収める
         const fittedMessages = this.contextManager
           ? this.contextManager.fitMessages(this.messages)
           : this.messages;
 
         const request: ChatCompletionRequest = {
-          model: this.llmProvider.getDefaultModel(),
+          model: activeProvider.getDefaultModel(),
           messages: fittedMessages as ChatMessage[],
           tools,
           stream: false,
         };
 
         // ストリーミングをサポートしているか確認
-        const supportsStream = this.llmProvider.supportsStreaming?.() ?? false;
+        const supportsStream = activeProvider.supportsStreaming?.() ?? false;
         let assistantContent = "";
         let toolCalls: ToolCall[] = [];
 
-        if (supportsStream) {
-          // ストリーミングモードで実行
-          const result = await this.consumeStream(request);
-          assistantContent = result.content;
-          toolCalls = result.toolCalls;
-        } else {
-          // 非ストリーミングモードで実行
-          const completion = await this.llmProvider.chatCompletion(request);
-          const assistantMessage = completion.choices[0].message;
-          assistantContent = assistantMessage.content || "";
-          toolCalls = assistantMessage.tool_calls || [];
+        // Phase 15: フォールバック付き LLM 呼び出し
+        let callSucceeded = false;
+        let currentProvider = activeProvider;
+
+        while (!callSucceeded) {
+          try {
+            request.model = currentProvider.getDefaultModel();
+
+            if (supportsStream && currentProvider === activeProvider) {
+              const result = await this.consumeStream(request);
+              assistantContent = result.content;
+              toolCalls = result.toolCalls;
+            } else {
+              const completion = await currentProvider.chatCompletion(request);
+              const assistantMessage = completion.choices[0].message;
+              assistantContent = assistantMessage.content || "";
+              toolCalls = assistantMessage.tool_calls || [];
+            }
+            callSucceeded = true;
+          } catch (llmError) {
+            // フォールバックチェーンを試行
+            const nextProvider = this.modelRouter?.getNextFallback(
+              currentProvider.getType(),
+            );
+            if (nextProvider) {
+              console.log(
+                `🔄 LLM call failed (${currentProvider.getType()}), falling back to ${nextProvider.getType()}`,
+              );
+              currentProvider = nextProvider;
+            } else {
+              // フォールバック先がない場合は元のエラーを再送出
+              throw llmError;
+            }
+          }
         }
 
         // デバッグ: LLMレスポンスをログ
@@ -1028,6 +1134,10 @@ Do NOT explain. Actually call the tool now.`;
 
   getAutoGitWorkflow(): AutoGitWorkflow | undefined {
     return this.autoGitWorkflow;
+  }
+
+  getModelRouter(): ModelRouter | undefined {
+    return this.modelRouter;
   }
 
   async cleanup(): Promise<void> {
