@@ -52,7 +52,8 @@ export class MultiFileEditTool extends BaseTool {
             },
             newString: {
               type: "string",
-              description: "The replacement string, or full content for new files",
+              description:
+                "The replacement string, or full content for new files",
             },
           },
           required: ["path", "newString"],
@@ -111,7 +112,10 @@ export class MultiFileEditTool extends BaseTool {
             error: `Edit [${i}]: path is required and must be a string`,
           };
         }
-        if (edit.newString === undefined || typeof edit.newString !== "string") {
+        if (
+          edit.newString === undefined ||
+          typeof edit.newString !== "string"
+        ) {
           return {
             success: false,
             output: "",
