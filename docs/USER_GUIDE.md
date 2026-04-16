@@ -83,7 +83,8 @@ your-project/
 │   ├── daemon.pid       # デーモンプロセスID（起動時に自動作成）
 │   ├── dreams/          # AutoDream ログ
 │   ├── activity.json    # 最終アクティビティ時刻
-│   └── sessions.json    # セッション情報
+│   ├── sessions.json    # セッション情報
+│   └── vector-memory.json  # 長期メモリ（ベクトルストア・自動管理）
 └── your-code-files
 ```
 
@@ -136,6 +137,46 @@ lunacode memory compact
 ```bash
 lunacode memory topics
 ```
+
+### 長期メモリ（ベクトル検索）
+
+LunaCode はセッションを跨いで過去のタスク・エラー・コード変更を自動記憶します。ユーザー操作は不要で、AgentLoop がバックグラウンドで自動管理します。
+
+**仕組み**
+
+| 記憶タイプ | 自動保存タイミング |
+|---|---|
+| タスク結果 | LLM の応答完了後 |
+| エラー記録 | ツール実行が失敗したとき |
+| コード変更 | `write_file` / `edit_file` 成功後 |
+| 会話サマリー | セッション終了時 |
+
+**埋め込みプロバイダーの自動選択**
+
+Ollama（`nomic-embed-text`）→ OpenAI API → TF-IDF の順で利用可能なものを自動選択します。Ollama または OpenAI がなくても TF-IDF フォールバックで常に動作します。
+
+**保存場所**
+
+```
+.kairos/
+└── vector-memory.json   # ベクトルメモリ（自動管理）
+```
+
+**設定（config.json）**
+
+```json
+{
+  "memory": {
+    "longTerm": {
+      "enabled": true,
+      "maxEntries": 10000,
+      "contextMaxTokens": 2000
+    }
+  }
+}
+```
+
+> **注意**: ベクトルメモリは自動的に蓄積されます。`.kairos/vector-memory.json` を削除するとリセットされます。
 
 ### デーモンモード
 

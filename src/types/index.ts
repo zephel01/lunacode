@@ -350,7 +350,7 @@ export interface HookDefinition {
 // Phase 8: サブエージェント
 // ========================================
 
-export type SubAgentRole = "explorer" | "worker" | "reviewer";
+export type SubAgentRole = "explorer" | "worker" | "reviewer" | "planner" | "coder" | "tester";
 
 export interface SubAgentConfig {
   id?: string;
@@ -506,4 +506,65 @@ export interface MemoryContext {
   contextText: string;
   entries: VectorSearchResult[];
   embeddingProvider: string;
+}
+
+// ========================================
+// パイプラインオーケストレーション
+// ========================================
+
+/**
+ * パイプラインの各ステージを担当するエージェントの役割
+ * Planner → Coder → Tester → Reviewer の順序で実行される
+ */
+export type PipelineRole = "planner" | "coder" | "tester" | "reviewer";
+
+/**
+ * パイプラインの各ステージの実行結果
+ */
+export interface PipelineStageResult {
+  stage: PipelineRole;
+  status: "success" | "failed" | "skipped" | "timeout";
+  output: string;
+  durationMs: number;
+  iteration: number; // 何回目の試行か（Coder/Testerはリトライがある）
+  error?: string;
+}
+
+/**
+ * パイプライン全体を通じて蓄積されるアーティファクト
+ */
+export interface PipelineArtifacts {
+  plan?: string;        // Plannerが生成した実装計画
+  code?: string;        // Coderが生成・修正したコード
+  testResults?: string; // Testerが実行したテスト結果
+  review?: string;      // Reviewerが提供したレビュー
+}
+
+/**
+ * パイプラインの実行設定
+ */
+export interface PipelineConfig {
+  /** テスト失敗時に Coder → Tester をリトライする最大回数（デフォルト: 3）*/
+  maxRetries?: number;
+  /** 各ステージのタイムアウト（ミリ秒、デフォルト: 120000）*/
+  stageTimeout?: number;
+  /** スキップするステージ */
+  skipStages?: PipelineRole[];
+  /** ステージ完了時のコールバック */
+  onStageComplete?: (result: PipelineStageResult, artifacts: PipelineArtifacts) => void;
+  /** ステージ開始時のコールバック */
+  onStageStart?: (stage: PipelineRole, iteration: number) => void;
+}
+
+/**
+ * パイプライン全体の実行結果
+ */
+export interface PipelineResult {
+  taskDescription: string;
+  status: "success" | "failed";
+  stages: PipelineStageResult[];
+  artifacts: PipelineArtifacts;
+  totalDurationMs: number;
+  coderIterations: number; // Coderが何回実行されたか
+  error?: string;
 }
