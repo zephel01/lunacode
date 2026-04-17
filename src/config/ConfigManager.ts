@@ -7,6 +7,8 @@ import {
   RoutingConfig,
 } from "../types/index.js";
 import type { LoggingConfig } from "../utils/Logger.js";
+import type { ValidationConfig } from "../tools/SyntaxValidator.js";
+import type { SandboxConfig } from "../sandbox/types.js";
 
 export interface CheckpointConfig {
   enabled?: boolean;
@@ -93,6 +95,10 @@ export interface LunaCodeConfig {
   routing?: RoutingConfig;
   // ロギング設定（Phase 16: pino 構造化ログ）
   logging?: LoggingConfig;
+  // 構文チェック設定（write_file / edit_file 後の post-write validation）
+  validation?: ValidationConfig;
+  // サンドボックス設定（Tier 1: 作業ツリー分離 / Tier 2: コンテナ / Tier 3: OS ネイティブ）
+  sandbox?: SandboxConfig;
   // 拡張設定（プラグイン等からの任意セクション）
   [key: string]: unknown;
 }
@@ -332,6 +338,14 @@ export class ConfigManager {
 
   getDaemonConfig() {
     return this.config.daemon;
+  }
+
+  getValidationConfig(): ValidationConfig | undefined {
+    return this.config.validation;
+  }
+
+  getSandboxConfig(): SandboxConfig | undefined {
+    return this.config.sandbox;
   }
 
   updateLLMProvider(config: Partial<LunaCodeConfig["llm"]>): void {

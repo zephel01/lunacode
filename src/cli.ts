@@ -1781,7 +1781,12 @@ async function handleOneshotQuery(
 
 async function handleTestProvider(
   kairosPath: string,
-  options: { quick?: boolean; save?: boolean; output?: string },
+  options: {
+    quick?: boolean;
+    save?: boolean;
+    output?: string;
+    checkModel?: boolean;
+  },
 ): Promise<void> {
   const configManager = new ConfigManager(kairosPath);
   await configManager.load();
@@ -1803,7 +1808,41 @@ async function handleTestProvider(
     process.exit(1);
   }
 
-  if (options.quick) {
+  if (options.checkModel) {
+    // モデル対応チェック: registry 宣言 vs 実機の整合性を見て verdict を返す
+    const tester = new ProviderTester(provider, kairosPath, configManager);
+    try {
+      const spinner = new Spinner();
+      spinner.start("モデル対応状況をチェック中...");
+      const report = await tester.checkModel();
+      spinner.stop();
+      tester.printModelCheckReport(report);
+
+      if (options.save) {
+        const reportPath =
+          options.output ||
+          path.join(kairosPath, `model-check-${Date.now()}.json`);
+        await fs.writeFile(
+          reportPath,
+          JSON.stringify(report, null, 2),
+          "utf-8",
+        );
+        console.log(`💾 Report saved to: ${reportPath}\n`);
+      }
+
+      // needs_tuning は exit 2 で返して「動くけど設定要調整」を区別
+      const exitCode =
+        report.verdict === "supported"
+          ? 0
+          : report.verdict === "needs_tuning"
+            ? 2
+            : 1;
+      process.exit(exitCode);
+    } catch (error) {
+      console.error("❌ Model check failed:", error);
+      process.exit(1);
+    }
+  } else if (options.quick) {
     console.log("🧪 Quick connection test...\n");
     const agent = new AgentLoop(provider, kairosPath, configManager);
     await agent.initialize();
@@ -1957,6 +1996,10 @@ function buildProgram(): Command {
     .command("test-provider")
     .description("Test LLM provider connection")
     .option("-q, --quick", "Quick connection test only")
+    .option(
+      "--check-model",
+      "Check if the current model is supported (registry vs reality)",
+    )
     .option("--save", "Save test report to file")
     .option("-o, --output <path>", "Report output path")
     .action(async (opts: OptionValues) => {

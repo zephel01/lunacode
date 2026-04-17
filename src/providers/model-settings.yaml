@@ -1,0 +1,142 @@
+# LunaCode モデル設定レジストリ（同梱デフォルト）
+#
+# Aider の model-settings.yml 相当。プロバイダ/モデルごとの挙動を宣言的に管理する。
+# `lunacode init` が作成する .kairos/config.json と同じディレクトリに置く。
+# ユーザは以下のいずれかのパスに同名の YAML を置くことで上書きできる:
+#
+#   1. ~/.kairos/model-settings.yml                 （全体設定）
+#   2. <repo-root>/.kairos/model-settings.yml      （リポジトリ設定）
+#   3. <cwd>/.kairos/model-settings.yml            （カレント設定、明示用）
+#
+# 解決順: ユーザファイル群 → 同梱デフォルト の順で全エントリをマージし、
+# 「最初にマッチしたエントリ」が採用される（glob 先頭マッチ）。
+#
+# match 構文: "<provider>/<model-glob>"
+#   - provider は ollama / openai / anthropic / lmstudio / zai のいずれか
+#   - model-glob は "*" を含むシェル風 glob（大文字小文字は無視）
+#
+# 各フィールド:
+#   native_tools: true        ネイティブ tool calling を試みる
+#   native_tools: false       tools パラメータを送らない（whole-format のみ）
+#   edit_format: whole        今は whole のみサポート（将来 diff / udiff を追加予定）
+#   num_ctx: <int|null>       Ollama 系のコンテキスト長。null は「送信しない」
+#   extra_params:             プロバイダに素通しする追加パラメータ（OllamaProvider は num_ctx 以外もここから読む）
+#   notes: "..."              自由記述メモ
+
+version: 1
+
+models:
+  # ----------------------------------------------------------------------------
+  # Ollama - Qwen 系
+  # ----------------------------------------------------------------------------
+  - match: "ollama/qwen3.6*a3b*"
+    native_tools: false
+    edit_format: whole
+    num_ctx: 16384
+    notes: "MoE Q4 量子化モデル。ネイティブ tool calling 未対応。whole-format 優先"
+
+  - match: "ollama/qwen3.5*"
+    native_tools: false
+    edit_format: whole
+    num_ctx: 16384
+    notes: "小型量子化モデル。tool calling 不安定"
+
+  - match: "ollama/qwen2.5-coder*"
+    native_tools: true
+    edit_format: whole
+    num_ctx: 32768
+    notes: "Qwen2.5-Coder は tool calling に対応（Aider でも diff 推奨）"
+
+  - match: "ollama/qwen*"
+    native_tools: true
+    edit_format: whole
+    num_ctx: 16384
+
+  # ----------------------------------------------------------------------------
+  # Ollama - Gemma 系
+  # ----------------------------------------------------------------------------
+  - match: "ollama/gemma*"
+    native_tools: false
+    edit_format: whole
+    num_ctx: 8192
+    notes: "Gemma 系は tool_call テンプレを正しく生成しないことが多い"
+
+  # ----------------------------------------------------------------------------
+  # Ollama - Llama 系
+  # ----------------------------------------------------------------------------
+  - match: "ollama/llama3.1*"
+    native_tools: true
+    edit_format: whole
+    num_ctx: 8192
+
+  - match: "ollama/llama3*"
+    native_tools: true
+    edit_format: whole
+    num_ctx: 8192
+
+  - match: "ollama/codellama*"
+    native_tools: false
+    edit_format: whole
+    num_ctx: 16384
+    notes: "CodeLlama は tool calling 未対応のバージョンが多い"
+
+  # ----------------------------------------------------------------------------
+  # Ollama - その他
+  # ----------------------------------------------------------------------------
+  - match: "ollama/deepseek-coder*"
+    native_tools: false
+    edit_format: whole
+    num_ctx: 16384
+
+  - match: "ollama/mistral*"
+    native_tools: true
+    edit_format: whole
+    num_ctx: 16384
+
+  - match: "ollama/*"
+    native_tools: true
+    edit_format: whole
+    num_ctx: 8192
+    notes: "Ollama 汎用フォールバック"
+
+  # ----------------------------------------------------------------------------
+  # LM Studio - Ollama と同種の問題が起きやすいので保守的に whole
+  # ----------------------------------------------------------------------------
+  - match: "lmstudio/*qwen3.6*"
+    native_tools: false
+    edit_format: whole
+
+  - match: "lmstudio/*gemma*"
+    native_tools: false
+    edit_format: whole
+
+  - match: "lmstudio/*"
+    native_tools: true
+    edit_format: whole
+
+  # ----------------------------------------------------------------------------
+  # クラウド系（ネイティブ tool calling が安定）
+  # ----------------------------------------------------------------------------
+  - match: "openai/*"
+    native_tools: true
+    edit_format: whole
+    num_ctx: null
+
+  - match: "anthropic/*"
+    native_tools: true
+    edit_format: whole
+    num_ctx: null
+
+  - match: "zai/*"
+    native_tools: true
+    edit_format: whole
+    num_ctx: null
+
+  # ----------------------------------------------------------------------------
+  # 最終フォールバック（何にもマッチしなかった場合）
+  # ----------------------------------------------------------------------------
+  - match: "*/*"
+    native_tools: true
+    edit_format: whole
+    num_ctx: null
+    notes: "全プロバイダ・全モデルの最終フォールバック"

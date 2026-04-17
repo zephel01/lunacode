@@ -11,12 +11,37 @@ import {
 import { StreamChunk } from "../types/index.js";
 import { Logger } from "../utils/Logger.js";
 import type pino from "pino";
+import {
+  getModelSettingsRegistry,
+  type ModelSettings,
+} from "./ModelSettingsRegistry.js";
 
 export class OllamaProvider implements ILLMProvider {
   private baseUrl: string;
   private model: string;
   private config: OllamaConfig;
   private useNativeTools: boolean = true; // ネイティブ Tool Calling を試行するか
+  /**
+   * tools パラメータを完全に送らず、whole-format（ファイル名付きコードブロック）
+   * のみで応答させるモード。
+   *
+   * 判定は ModelSettingsRegistry に一元化されている。
+   * レジストリのエントリは以下の優先順で解決される:
+   *   1. <cwd>/.kairos/model-settings.yml
+   *   2. <repo>/.kairos/model-settings.yml
+   *   3. ~/.kairos/model-settings.yml
+   *   4. src/providers/ModelSettingsRegistry.ts の BUILTIN_MODEL_SETTINGS
+   *
+   * 後方互換: 以下の環境変数は引き続きレジストリ経由で効く（deprecation warn あり）:
+   *   - LUNACODE_OLLAMA_DISABLE_TOOLS=1
+   *   - LUNACODE_OLLAMA_NO_TOOLS_MODELS="qwen3.6,gemma"
+   *   - LUNACODE_OLLAMA_NUM_CTX=16384
+   */
+  private disableTools: boolean = false;
+  /** Ollama に送信する num_ctx。null/undefined なら送らない */
+  private numCtx: number | null;
+  /** レジストリで解決した設定（主にデバッグ・ログ用） */
+  private settings: ModelSettings;
   /** リクエストタイムアウト（ミリ秒）。デフォルト 5 分 */
   private requestTimeout: number;
   private log: pino.Logger;
@@ -35,6 +60,52 @@ export class OllamaProvider implements ILLMProvider {
     this.model = model;
     this.requestTimeout = config.requestTimeout ?? 300_000; // デフォルト 5 分
     this.log = Logger.get("OllamaProvider");
+
+    // レジストリから設定を解決
+    const registry = getModelSettingsRegistry();
+    const settings = registry.resolve("ollama", model);
+    this.settings = settings;
+    this.disableTools = !settings.native_tools;
+    // num_ctx: レジストリが null を返したら送信しない
+    this.numCtx =
+      typeof settings.num_ctx === "number" ? settings.num_ctx : null;
+
+    // どのエントリにマッチしたかを起動時に 1 度だけ出力する（ユーザが
+    // 「このモデルが想定外の挙動 → どのエントリを書き換えれば良いか」を
+    // すぐ判断できるようにするため）。native_tools の真偽に関わらず出す。
+    this.log.info(
+      {
+        model,
+        match: settings.match,
+        native_tools: settings.native_tools,
+        edit_format: settings.edit_format,
+        num_ctx: this.numCtx,
+        notes: settings.notes,
+      },
+      "[OllamaProvider] モデル設定を解決しました（~/.kairos/model-settings.yml または <cwd>/.kairos/model-settings.yml で上書き可）",
+    );
+
+    if (this.disableTools) {
+      // tools を送らないので、ネイティブ tool calling 経路も使わない
+      this.useNativeTools = false;
+      this.log.warn(
+        { model, match: settings.match, notes: settings.notes },
+        "[OllamaProvider] no-tools モードで起動します（tools パラメータは送信しません）。応答は whole-format で解釈されます",
+      );
+    }
+  }
+
+  /**
+   * no-tools モードかどうかを外部から参照するためのアクセサ。
+   * AgentLoop がシステムプロンプト／リトライメッセージを切り替える判断に使う。
+   */
+  isToolsDisabled(): boolean {
+    return this.disableTools;
+  }
+
+  /** デバッグ用: 解決済みの設定エントリを返す */
+  getResolvedSettings(): ModelSettings {
+    return this.settings;
   }
 
   /**
@@ -283,19 +354,28 @@ export class OllamaProvider implements ILLMProvider {
     request: ChatCompletionRequest,
     stream: boolean = false,
   ): Record<string, unknown> {
+    // num_ctx はレジストリから取得（環境変数は registry 側で上書き反映済み）。
+    // Ollama のデフォルト num_ctx は 2048 で、システムプロンプト＋ツール定義＋
+    // 会話履歴ではすぐに溢れるため、コーディング用途では少なくとも 8192 を推奨。
+    const options: Record<string, unknown> = {
+      temperature: request.temperature || 0.7,
+      // -1 = Ollama の無制限生成（モデルのコンテキストウィンドウまで）
+      num_predict: request.max_tokens ?? -1,
+    };
+    if (typeof this.numCtx === "number" && this.numCtx > 0) {
+      options.num_ctx = this.numCtx;
+    }
+
     const body: Record<string, unknown> = {
       model: request.model || this.model,
       messages: this.convertMessages(request.messages),
       stream,
-      options: {
-        temperature: request.temperature || 0.7,
-        // -1 = Ollama の無制限生成（モデルのコンテキストウィンドウまで）
-        // ユーザーが max_tokens を明示した場合のみその値を使う
-        num_predict: request.max_tokens ?? -1,
-      },
+      options,
     };
 
-    if (this.useNativeTools) {
+    // no-tools モードでは tools を一切送らない（モデルが tool_call 生成で
+    // フリーズする事故を回避し、自然文 + whole-format に委ねる）
+    if (this.useNativeTools && !this.disableTools) {
       const ollamaTools = request.tools?.map((tool) => ({
         type: "function",
         function: {
@@ -540,13 +620,29 @@ export class OllamaProvider implements ILLMProvider {
     const toolCalls: ToolCall[] = [];
     let match;
 
+    // 各パターンの「生マッチ回数 / 最終抽出成功数」を追跡（診断ログ用）
+    // rawHits はパターンがテキスト上でマッチした回数、parsed は JSON パースまで成功した回数
+    const patternStats: Record<string, { rawHits: number; parsed: number }> = {
+      p1_toolCallTag: { rawHits: 0, parsed: 0 },
+      p1b_unclosedTag: { rawHits: 0, parsed: 0 },
+      p2_jsonBlock: { rawHits: 0, parsed: 0 },
+      p3_mistralTag: { rawHits: 0, parsed: 0 },
+      p4_gemmaHeader: { rawHits: 0, parsed: 0 },
+      p5_arrayForm: { rawHits: 0, parsed: 0 },
+      p6_rawJson: { rawHits: 0, parsed: 0 },
+    };
+
     // パターン1: <tool_call>...</tool_call> タグ形式
     const toolCallPattern =
       /<tool_call>\s*\n?\s*([\s\S]*?)\s*\n?\s*<\/tool_call>/g;
 
     while ((match = toolCallPattern.exec(content)) !== null) {
+      patternStats.p1_toolCallTag.rawHits++;
       const parsed = this.tryParseToolCall(match[1].trim());
-      if (parsed) toolCalls.push(this.createToolCall(toolCalls.length, parsed));
+      if (parsed) {
+        patternStats.p1_toolCallTag.parsed++;
+        toolCalls.push(this.createToolCall(toolCalls.length, parsed));
+      }
     }
 
     // パターン1b: <tool_call> タグはあるが </tool_call> がない場合
@@ -554,12 +650,14 @@ export class OllamaProvider implements ILLMProvider {
     if (toolCalls.length === 0) {
       const openTagPattern = /<tool_call>\s*\n?\s*\{/g;
       while ((match = openTagPattern.exec(content)) !== null) {
+        patternStats.p1b_unclosedTag.rawHits++;
         const jsonStart = content.indexOf("{", match.index);
         if (jsonStart !== -1) {
           const jsonStr = this.extractBalancedJson(content, jsonStart);
           if (jsonStr) {
             const parsed = this.tryParseToolCall(jsonStr);
             if (parsed) {
+              patternStats.p1b_unclosedTag.parsed++;
               this.log.debug(
                 "[DEBUG] Pattern 1b: extracted tool call from unclosed <tool_call> tag",
               );
@@ -574,9 +672,12 @@ export class OllamaProvider implements ILLMProvider {
     if (toolCalls.length === 0) {
       const jsonBlockPattern = /```(?:json)?\s*([\s\S]*?)\s*```/g;
       while ((match = jsonBlockPattern.exec(content)) !== null) {
+        patternStats.p2_jsonBlock.rawHits++;
         const parsed = this.tryParseToolCall(match[1].trim());
-        if (parsed)
+        if (parsed) {
+          patternStats.p2_jsonBlock.parsed++;
           toolCalls.push(this.createToolCall(toolCalls.length, parsed));
+        }
       }
     }
 
@@ -585,13 +686,16 @@ export class OllamaProvider implements ILLMProvider {
     if (toolCalls.length === 0) {
       const mistralPattern = /\[TOOL_CALLS\]\s*(\[[\s\S]*?\])/gi;
       while ((match = mistralPattern.exec(content)) !== null) {
+        patternStats.p3_mistralTag.rawHits++;
         try {
           const arr = JSON.parse(match[1]);
           if (Array.isArray(arr)) {
             for (const item of arr) {
               const parsed = this.normalizeToolData(item);
-              if (parsed)
+              if (parsed) {
+                patternStats.p3_mistralTag.parsed++;
                 toolCalls.push(this.createToolCall(toolCalls.length, parsed));
+              }
             }
           }
         } catch (e) {
@@ -606,11 +710,13 @@ export class OllamaProvider implements ILLMProvider {
     if (toolCalls.length === 0) {
       const gemmaHeaderPattern = /Tool\s*call:\s*(\w+)\s*\{/gi;
       while ((match = gemmaHeaderPattern.exec(content)) !== null) {
+        patternStats.p4_gemmaHeader.rawHits++;
         try {
           const jsonStart = match.index + match[0].length - 1; // '{' の位置
           const jsonStr = this.extractBalancedJson(content, jsonStart);
           if (jsonStr) {
             const args = JSON.parse(jsonStr);
+            patternStats.p4_gemmaHeader.parsed++;
             toolCalls.push(
               this.createToolCall(toolCalls.length, {
                 name: match[1],
@@ -630,13 +736,16 @@ export class OllamaProvider implements ILLMProvider {
       const arrayPattern =
         /(?:^|\n)\s*(\[\s*\{[\s\S]*?"name"\s*:[\s\S]*?\}\s*\])/g;
       while ((match = arrayPattern.exec(content)) !== null) {
+        patternStats.p5_arrayForm.rawHits++;
         try {
           const arr = JSON.parse(match[1]);
           if (Array.isArray(arr)) {
             for (const item of arr) {
               const parsed = this.normalizeToolData(item);
-              if (parsed)
+              if (parsed) {
+                patternStats.p5_arrayForm.parsed++;
                 toolCalls.push(this.createToolCall(toolCalls.length, parsed));
+              }
             }
           }
         } catch (e) {
@@ -652,6 +761,7 @@ export class OllamaProvider implements ILLMProvider {
       const rawJsonHeaderPattern =
         /\{\s*"name"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*\{/g;
       while ((match = rawJsonHeaderPattern.exec(content)) !== null) {
+        patternStats.p6_rawJson.rawHits++;
         try {
           // "arguments": { の '{' から開始してバランスの取れた JSON を抽出
           const argsStart = content.indexOf(
@@ -661,6 +771,7 @@ export class OllamaProvider implements ILLMProvider {
           const argsStr = this.extractBalancedJson(content, argsStart);
           if (argsStr) {
             const args = JSON.parse(argsStr);
+            patternStats.p6_rawJson.parsed++;
             toolCalls.push(
               this.createToolCall(toolCalls.length, {
                 name: match[1],
@@ -678,9 +789,52 @@ export class OllamaProvider implements ILLMProvider {
       this.log.debug(
         `Extracted ${toolCalls.length} tool call(s) using text patterns`,
       );
+    } else if (content.trim().length > 0) {
+      // 抽出 0 件かつ応答は空でない → 未対応フォーマットの可能性
+      // warn レベルで「何が来たか」を可視化する（Phase A(C)）
+      this.logExtractionFailure(content, patternStats);
     }
 
     return toolCalls;
+  }
+
+  /**
+   * ツール抽出が 0 件に終わった際の診断情報を warn レベルで出力する。
+   * Phase A(C): Qwen / Gemma 等のローカルモデルで未対応フォーマットを
+   * 特定するためのダンプ。
+   *
+   * 出力内容:
+   * - 各パターンの「生マッチ数 / パース成功数」
+   * - 応答冒頭 500 文字
+   * - tool_call / function / name: を含む「怪しい行」の抽出
+   */
+  private logExtractionFailure(
+    content: string,
+    patternStats: Record<string, { rawHits: number; parsed: number }>,
+  ): void {
+    const MAX_PREVIEW = 500;
+    const MAX_SUSPICIOUS_LINES = 10;
+    const SUSPICIOUS = /(tool_call|function[_ ]?call|["']name["']\s*:|<\|)/i;
+
+    const preview =
+      content.length > MAX_PREVIEW
+        ? `${content.substring(0, MAX_PREVIEW)}… (${content.length - MAX_PREVIEW} more chars)`
+        : content;
+
+    const suspiciousLines = content
+      .split("\n")
+      .filter((line) => SUSPICIOUS.test(line))
+      .slice(0, MAX_SUSPICIOUS_LINES);
+
+    this.log.warn(
+      {
+        patternStats,
+        contentLength: content.length,
+        contentPreview: preview,
+        suspiciousLines,
+      },
+      "[extractToolCallsFromText] 抽出 0 件。モデルが未対応フォーマットで応答している可能性",
+    );
   }
 
   /**

@@ -39,6 +39,61 @@ describe("OllamaProvider 基本機能", () => {
   });
 });
 
+describe("OllamaProvider no-tools モード", () => {
+  const saved = {
+    disable: process.env.LUNACODE_OLLAMA_DISABLE_TOOLS,
+    patterns: process.env.LUNACODE_OLLAMA_NO_TOOLS_MODELS,
+  };
+
+  function cleanup() {
+    if (saved.disable === undefined) {
+      delete process.env.LUNACODE_OLLAMA_DISABLE_TOOLS;
+    } else {
+      process.env.LUNACODE_OLLAMA_DISABLE_TOOLS = saved.disable;
+    }
+    if (saved.patterns === undefined) {
+      delete process.env.LUNACODE_OLLAMA_NO_TOOLS_MODELS;
+    } else {
+      process.env.LUNACODE_OLLAMA_NO_TOOLS_MODELS = saved.patterns;
+    }
+  }
+
+  test("デフォルトでは tools 送信が有効 (isToolsDisabled=false)", () => {
+    delete process.env.LUNACODE_OLLAMA_DISABLE_TOOLS;
+    delete process.env.LUNACODE_OLLAMA_NO_TOOLS_MODELS;
+    const provider = new OllamaProvider({ type: "ollama", model: "llama3.1" });
+    expect(provider.isToolsDisabled()).toBe(false);
+    cleanup();
+  });
+
+  test("LUNACODE_OLLAMA_DISABLE_TOOLS=1 で全モデル対象に無効化される", () => {
+    process.env.LUNACODE_OLLAMA_DISABLE_TOOLS = "1";
+    delete process.env.LUNACODE_OLLAMA_NO_TOOLS_MODELS;
+    const provider = new OllamaProvider({ type: "ollama", model: "llama3.1" });
+    expect(provider.isToolsDisabled()).toBe(true);
+    cleanup();
+  });
+
+  test("LUNACODE_OLLAMA_NO_TOOLS_MODELS パターンに一致するモデルのみ無効化される", () => {
+    delete process.env.LUNACODE_OLLAMA_DISABLE_TOOLS;
+    process.env.LUNACODE_OLLAMA_NO_TOOLS_MODELS = "qwen3.6,gemma2:2b";
+
+    const matched = new OllamaProvider({
+      type: "ollama",
+      model: "qwen3.6:35b-a3b-q4_K_M",
+    });
+    expect(matched.isToolsDisabled()).toBe(true);
+
+    const unmatched = new OllamaProvider({
+      type: "ollama",
+      model: "qwen2.5-coder:32b",
+    });
+    expect(unmatched.isToolsDisabled()).toBe(false);
+
+    cleanup();
+  });
+});
+
 describe("OllamaProvider ネイティブ Tool Calling", () => {
   test("ツール付きリクエストが送信できる", async () => {
     if (!ollamaAvailable) return;
@@ -227,17 +282,25 @@ Tool call: write_file{"path": "/tmp/hello.js", "content": "console.log('hello');
   test("normalizeToolData: name/parameters 形式に対応", () => {
     const provider = new OllamaProvider({ type: "ollama" }) as any;
 
-    const data = { name: "write_file", parameters: { path: "/tmp/test.txt", content: "hello" } };
+    const data = {
+      name: "write_file",
+      parameters: { path: "/tmp/test.txt", content: "hello" },
+    };
     const result = provider.normalizeToolData(data);
     expect(result).not.toBeNull();
     expect(result!.name).toBe("write_file");
-    expect(result!.arguments).toEqual({ path: "/tmp/test.txt", content: "hello" });
+    expect(result!.arguments).toEqual({
+      path: "/tmp/test.txt",
+      content: "hello",
+    });
   });
 
   test("normalizeToolData: OpenAI function 形式に対応", () => {
     const provider = new OllamaProvider({ type: "ollama" }) as any;
 
-    const data = { function: { name: "read_file", arguments: { path: "/tmp/x" } } };
+    const data = {
+      function: { name: "read_file", arguments: { path: "/tmp/x" } },
+    };
     const result = provider.normalizeToolData(data);
     expect(result).not.toBeNull();
     expect(result!.name).toBe("read_file");

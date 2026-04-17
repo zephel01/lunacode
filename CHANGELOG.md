@@ -10,6 +10,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.4.2] - 2026-04-17
+
+### Added
+
+**ローカル LLM 最適化・安全性 Phase 22〜24**
+
+- **Phase 24 Complete**: サンドボックス階層 Tier 1（作業ツリー分離）を追加
+  - `WorkspaceIsolator` がタスク毎に origin の隔離コピーを作成し、`process.chdir()` で切り替え
+  - 4 ストラテジー: `apfs-clone`（macOS APFS, CoW）/ `reflink`（Linux btrfs/xfs）/ `git-worktree` / `copy`
+  - `strategy: "auto"` で環境に応じて自動選択、巨大 `node_modules` 既定除外
+  - `diff()` / `merge({ dryRun })` / `cleanup()` API、`keepOnFailure: true` でデバッグ容易
+  - `.kairos/config.json` の `sandbox.tier = "workspace"` で有効化
+  - テスト: 20 pass
+  - ドキュメント: [`docs/SANDBOX.md`](docs/SANDBOX.md)
+- **Phase 23 Complete**: post-write 構文チェック（SyntaxValidator）
+  - `write_file` / `edit_file` / `multi_file_edit` の書き込み直後に言語別 parse チェックを実行
+  - 対応: TypeScript / JavaScript / JSON / Python / YAML。失敗は警告のみでブロックしない
+  - LLM 側に「壊れたコードを書いた」ことを返すことで次ターンでの自己修正を促す設計
+  - テスト: 各言語分 pass（総計 676 pass へ寄与）
+  - ドキュメント: [`docs/VALIDATION.md`](docs/VALIDATION.md)
+- **Phase 22 Complete**: モデル設定レジストリ（Aider 方式）
+  - `model-settings.yml` でモデル × 設定（`native_tools` / `edit_format` / `num_ctx`）を宣言管理
+  - 4 階層の優先（cwd / repo / user / builtin）+ glob マッチ
+  - `lunacode test-provider --check-model` で実機 probe とレジストリ宣言の一致を検証
+  - 既存の `LUNACODE_OLLAMA_*` 環境変数は後方互換で維持（deprecation warning あり）
+  - ドキュメント: [`docs/MODEL_SETTINGS.md`](docs/MODEL_SETTINGS.md)
+
+### Changed
+
+- テスト総数: 566 → 676 pass
+- README の Phase バッジ: 21/22 → 23/24
+- `ROADMAP.md` を新設し、公開用の進捗サマリーを `docs/inside/plan.md`（非公開）から分離
+- リポジトリルートの `plan.md`（サンドボックス階層ワーキングメモ）を `docs/inside/plan.md` に統合・削除
+- 採番整理: 旧 Phase 9（重複していた ModelSettingsRegistry）を Phase 22 にリネーム
+
+### Docs
+
+- 新規: `docs/SANDBOX.md` / `docs/VALIDATION.md` / `docs/MODEL_SETTINGS.md` / `docs/KAIROS_DIRECTORY.md` / `ROADMAP.md`
+
+---
+
 ## [2.4.0] - 2026-04-16
 
 ### Added

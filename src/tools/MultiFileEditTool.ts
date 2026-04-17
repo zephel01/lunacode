@@ -7,6 +7,7 @@
 
 import { BaseTool } from "./BaseTool.js";
 import { ToolResult } from "../types/index.js";
+import { validateSyntax, formatValidationWarning } from "./SyntaxValidator.js";
 
 /** 1ファイル分の編集指示 */
 export interface FileEdit {
@@ -245,12 +246,26 @@ export class MultiFileEditTool extends BaseTool {
       const verifyLines = writtenPaths.map(
         (p) => `  ✅ ${p} [${verifiedSizes.get(p)} bytes on disk]`,
       );
+
+      // 書き込み後に構文チェック（失敗してもロールバックはしない・警告のみ）
+      const warningLines: string[] = [];
+      for (const absPath of writtenPaths) {
+        const content = contentCache.get(absPath) ?? "";
+        const validation = await validateSyntax(absPath, content);
+        const warning = formatValidationWarning(validation);
+        if (warning) {
+          warningLines.push(`  ⚠️  ${absPath}:${warning}`);
+        }
+      }
+
       const header = description
         ? `${description}: ${edits.length} edit(s) applied to ${contentCache.size} file(s)`
         : `${edits.length} edit(s) applied to ${contentCache.size} file(s)`;
       return {
         success: true,
-        output: [header, ...results, ...verifyLines].join("\n"),
+        output: [header, ...results, ...verifyLines, ...warningLines].join(
+          "\n",
+        ),
       };
     } catch (error) {
       return {

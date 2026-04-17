@@ -20,6 +20,10 @@ import { AgentLoop } from "../agents/AgentLoop.js";
 import { ConfigManager } from "../config/ConfigManager.js";
 import { MemorySystem } from "../memory/MemorySystem.js";
 import { ModelRegistry } from "../providers/ModelRegistry.js";
+import {
+  getModelSettingsRegistry,
+  ModelSettings,
+} from "../providers/ModelSettingsRegistry.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import * as fs from "fs/promises";
 import * as path from "path";
@@ -58,6 +62,45 @@ export interface TestReport {
     contextWindowTokens: number;
     subAgentDelegation: boolean;
   };
+}
+
+/**
+ * 単一モデルの対応状況チェック結果。
+ *
+ * - `verdict`: 総合判定
+ *   - `supported`       : registry 通りに動作
+ *   - `needs_tuning`    : registry と実機の挙動がずれている（YAML パッチ推奨）
+ *   - `unsupported`     : native も text extraction も望めない状態
+ *   - `unknown`         : 実機テストでエラーが出て判定不能
+ */
+export type ModelCheckVerdict =
+  | "supported"
+  | "needs_tuning"
+  | "unsupported"
+  | "unknown";
+
+export interface ModelCheckReport {
+  provider: string;
+  model: string;
+  timestamp: string;
+  durationMs: number;
+  /** ModelSettingsRegistry がこのモデルに対して返した設定 */
+  resolvedSettings: ModelSettings;
+  /** registry が組み込みデフォルト (match が全プロバイダ wildcard など) にマッチしたか */
+  isBuiltinFallback: boolean;
+  /** 実機で native tool calling を試した結果 */
+  nativeProbe: {
+    attempted: boolean;
+    succeeded: boolean;
+    toolCallCount: number;
+    errorMessage?: string;
+    responsePreview?: string;
+  };
+  verdict: ModelCheckVerdict;
+  /** 判定根拠の 1 行説明 */
+  summary: string;
+  /** 乖離時に推奨する model-settings.yml エントリ（YAML 文字列） */
+  suggestedPatch?: string;
 }
 
 export class ProviderTester {
@@ -806,4 +849,328 @@ Available tools:
     await fs.writeFile(filePath, JSON.stringify(report, null, 2), "utf-8");
     return filePath;
   }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // モデル対応状況チェック（lunacode test-provider --check-model）
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * 現在のプロバイダ/モデルについて、
+   *   - ModelSettingsRegistry の宣言（どう扱われる予定か）
+   *   - 実機の挙動（tool_calls が返るか）
+   * を突き合わせて対応状況を判定する。
+   *
+   * 単一モデル用の軽量チェック。フルテスト（runAll）と違って
+   * tool calling だけを相手にするため、数秒〜10秒程度で完了する想定。
+   */
+  async checkModel(): Promise<ModelCheckReport> {
+    const start = Date.now();
+    const providerType = this.provider.getType();
+    const model = this.provider.getDefaultModel();
+    const timestamp = new Date().toISOString();
+
+    // 1. ModelSettingsRegistry から解決
+    const registry = getModelSettingsRegistry();
+    const resolvedSettings = registry.resolve(providerType, model);
+    const isBuiltinFallback =
+      resolvedSettings.match === "*/*" ||
+      resolvedSettings.match === `${providerType}/*`;
+
+    // 2. 実機で native tool calling を試す
+    const nativeProbe = await this.probeNativeToolCalling(model);
+
+    // 3. 判定
+    const { verdict, summary, suggestedPatch } = this.judgeModelCheck(
+      providerType,
+      model,
+      resolvedSettings,
+      nativeProbe,
+      isBuiltinFallback,
+    );
+
+    return {
+      provider: providerType,
+      model,
+      timestamp,
+      durationMs: Date.now() - start,
+      resolvedSettings,
+      isBuiltinFallback,
+      nativeProbe,
+      verdict,
+      summary,
+      suggestedPatch,
+    };
+  }
+
+  /**
+   * tools 付きリクエストを 1 回投げて、tool_calls が返ってくるかを確認する。
+   * testNativeToolCalling の簡易版。
+   */
+  private async probeNativeToolCalling(model: string): Promise<{
+    attempted: boolean;
+    succeeded: boolean;
+    toolCallCount: number;
+    errorMessage?: string;
+    responsePreview?: string;
+  }> {
+    const request: ChatCompletionRequest = {
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a helpful assistant with tools. Always use the provided tools.",
+        },
+        { role: "user", content: "What is 2+2? Use the calculator tool." },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "calculator",
+            description: "Perform arithmetic calculations",
+            parameters: {
+              type: "object",
+              properties: {
+                expression: {
+                  type: "string",
+                  description: "Math expression to evaluate",
+                },
+              },
+              required: ["expression"],
+            },
+          },
+        },
+      ],
+    };
+
+    try {
+      const response = await this.provider.chatCompletion(request);
+      const toolCalls = response.choices[0]?.message?.tool_calls ?? [];
+      const content = response.choices[0]?.message?.content ?? "";
+      return {
+        attempted: true,
+        succeeded: toolCalls.length > 0,
+        toolCallCount: toolCalls.length,
+        responsePreview: content ? content.substring(0, 200) : undefined,
+      };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return {
+        attempted: true,
+        succeeded: false,
+        toolCallCount: 0,
+        errorMessage: msg,
+      };
+    }
+  }
+
+  /**
+   * registry の declaration と実機の結果を突き合わせて verdict を決める。
+   */
+  private judgeModelCheck(
+    providerType: string,
+    model: string,
+    settings: ModelSettings,
+    probe: {
+      succeeded: boolean;
+      toolCallCount: number;
+      errorMessage?: string;
+    },
+    isBuiltinFallback: boolean,
+  ): {
+    verdict: ModelCheckVerdict;
+    summary: string;
+    suggestedPatch?: string;
+  } {
+    const declared = settings.native_tools;
+    const observed = probe.succeeded;
+
+    // エラーで落ちた場合は判定不能（HTTP 400 など特定エラーは非対応と断定できるが、
+    // 安全側で unknown に倒す）
+    if (probe.errorMessage) {
+      const msg = probe.errorMessage;
+      const looksUnsupported =
+        /400|bad request|does not support tools|tool.*not supported/i.test(msg);
+      if (looksUnsupported && declared === false) {
+        return {
+          verdict: "supported",
+          summary:
+            "registry は native_tools=false を宣言しており、実機も tool calling 非対応で整合",
+        };
+      }
+      if (looksUnsupported && declared === true) {
+        return {
+          verdict: "needs_tuning",
+          summary:
+            "registry は native_tools=true だが実機は tool calling 非対応。false に下げるのが推奨",
+          suggestedPatch: renderYamlPatch(providerType, model, {
+            ...settings,
+            native_tools: false,
+            notes:
+              "実機で tool calling 非対応を確認 (test-provider --check-model)",
+          }),
+        };
+      }
+      return {
+        verdict: "unknown",
+        summary: `実機テストがエラーで判定不能: ${msg.substring(0, 120)}`,
+      };
+    }
+
+    // 成功ケース: registry と実機が一致
+    if (declared === observed) {
+      return {
+        verdict: "supported",
+        summary: declared
+          ? `native tool calling が動作し、registry の宣言と一致 (${probe.toolCallCount} tool call(s))`
+          : "registry は native_tools=false を宣言しており、実機も tool_calls を返さず整合",
+      };
+    }
+
+    // 乖離ケース 1: registry=false だが実機は tool_calls を返した
+    // → モデル側が実は対応している。YAML で true に上げることを提案
+    if (declared === false && observed === true) {
+      const note = isBuiltinFallback
+        ? "組み込みデフォルト (`*/*`) にマッチ中。専用エントリ追加を推奨"
+        : "registry の該当エントリを true に更新することを推奨";
+      return {
+        verdict: "needs_tuning",
+        summary: `registry は native_tools=false だが、実機では tool calling が動作 (${probe.toolCallCount} tool call(s))。${note}`,
+        suggestedPatch: renderYamlPatch(providerType, model, {
+          ...settings,
+          match: isBuiltinFallback
+            ? `${providerType}/${escapeGlobSegment(model)}`
+            : settings.match,
+          native_tools: true,
+          notes: "実機で tool calling 対応を確認 (test-provider --check-model)",
+        }),
+      };
+    }
+
+    // 乖離ケース 2: registry=true だが実機は tool_calls を返さない
+    // → 実機非対応。false に下げる提案
+    return {
+      verdict: "needs_tuning",
+      summary:
+        "registry は native_tools=true だが、実機は tool_calls を返さず。false に下げるのが推奨",
+      suggestedPatch: renderYamlPatch(providerType, model, {
+        ...settings,
+        match: isBuiltinFallback
+          ? `${providerType}/${escapeGlobSegment(model)}`
+          : settings.match,
+        native_tools: false,
+        notes: "実機で tool calling 不動作を確認 (test-provider --check-model)",
+      }),
+    };
+  }
+
+  /**
+   * モデルチェック結果を人間向けに整形して stdout に表示する。
+   */
+  printModelCheckReport(report: ModelCheckReport): void {
+    const verdictLabel: Record<ModelCheckVerdict, string> = {
+      supported: "✅ SUPPORTED",
+      needs_tuning: "⚠️  NEEDS TUNING",
+      unsupported: "❌ UNSUPPORTED",
+      unknown: "❓ UNKNOWN",
+    };
+
+    console.log("\n" + "═".repeat(70));
+    console.log("  🔍 Model Compatibility Check");
+    console.log("═".repeat(70));
+    console.log(`  Provider  : ${report.provider}`);
+    console.log(`  Model     : ${report.model}`);
+    console.log(`  Duration  : ${(report.durationMs / 1000).toFixed(2)}s`);
+    console.log("─".repeat(70));
+
+    // Registry 側
+    console.log("  📋 Registry Declaration");
+    console.log(
+      `     match         : ${report.resolvedSettings.match}${report.isBuiltinFallback ? " (builtin fallback)" : ""}`,
+    );
+    console.log(`     native_tools  : ${report.resolvedSettings.native_tools}`);
+    console.log(`     edit_format   : ${report.resolvedSettings.edit_format}`);
+    if (
+      report.resolvedSettings.num_ctx !== undefined &&
+      report.resolvedSettings.num_ctx !== null
+    ) {
+      console.log(`     num_ctx       : ${report.resolvedSettings.num_ctx}`);
+    }
+    if (report.resolvedSettings.notes) {
+      console.log(`     notes         : ${report.resolvedSettings.notes}`);
+    }
+    console.log("─".repeat(70));
+
+    // 実機プローブ
+    console.log("  🧪 Native Tool Calling Probe");
+    if (report.nativeProbe.errorMessage) {
+      console.log(
+        `     result        : error — ${report.nativeProbe.errorMessage.substring(0, 180)}`,
+      );
+    } else if (report.nativeProbe.succeeded) {
+      console.log(
+        `     result        : ✅ tool_calls returned (${report.nativeProbe.toolCallCount})`,
+      );
+    } else {
+      console.log(`     result        : ❌ no tool_calls (text response only)`);
+      if (report.nativeProbe.responsePreview) {
+        console.log(
+          `     preview       : ${report.nativeProbe.responsePreview.substring(0, 120)}`,
+        );
+      }
+    }
+    console.log("─".repeat(70));
+
+    // 判定
+    console.log(`  Verdict       : ${verdictLabel[report.verdict]}`);
+    console.log(`  Summary       : ${report.summary}`);
+
+    if (report.suggestedPatch) {
+      console.log("─".repeat(70));
+      console.log("  💡 Suggested model-settings.yml patch:");
+      console.log("");
+      for (const line of report.suggestedPatch.split("\n")) {
+        console.log(`     ${line}`);
+      }
+      console.log("");
+      console.log(
+        "  保存先: <project>/.kairos/model-settings.yml or ~/.kairos/model-settings.yml",
+      );
+    }
+
+    console.log("═".repeat(70) + "\n");
+  }
+}
+
+/**
+ * YAML エントリ 1 つを手書き風に整形する（js-yaml の dump を通すと
+ * コメントを残せないため、ここだけ手書き）。
+ */
+function renderYamlPatch(
+  _providerType: string,
+  _model: string,
+  settings: ModelSettings,
+): string {
+  const lines: string[] = [];
+  lines.push(`- match: "${settings.match}"`);
+  lines.push(`  native_tools: ${settings.native_tools}`);
+  lines.push(`  edit_format: ${settings.edit_format}`);
+  if (settings.num_ctx !== undefined && settings.num_ctx !== null) {
+    lines.push(`  num_ctx: ${settings.num_ctx}`);
+  }
+  if (settings.notes) {
+    lines.push(`  notes: "${settings.notes.replace(/"/g, '\\"')}"`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * モデル名を glob パターン用にエスケープする。
+ * "qwen3:4b" → "qwen3:4b" のように `*` と `?` を持たない名前はそのまま。
+ * 現状の matchesGlob は `*` と `?` を wildcard として扱うので、
+ * リテラルなモデル名がそれらを含んでいないケースでは追加エスケープ不要。
+ */
+function escapeGlobSegment(model: string): string {
+  return model;
 }

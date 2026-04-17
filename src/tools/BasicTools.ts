@@ -1,5 +1,6 @@
 import { BaseTool } from "./BaseTool.js";
 import { ToolResult } from "../types/index.js";
+import { validateSyntax, formatValidationWarning } from "./SyntaxValidator.js";
 
 export class BashTool extends BaseTool {
   name = "bash";
@@ -204,16 +205,27 @@ export class FileWriteTool extends BaseTool {
       if (append) {
         await fs.appendFile(path, content, "utf-8");
         const stat = await fs.stat(path);
+        // append 時は書き込み後のファイル全体を読み直して検証する
+        let fullContent = "";
+        try {
+          fullContent = await fs.readFile(path, "utf-8");
+        } catch {
+          fullContent = content;
+        }
+        const validation = await validateSyntax(path, fullContent);
+        const warning = formatValidationWarning(validation);
         return {
           success: true,
-          output: `Successfully appended to ${path} [verified: ${stat.size} bytes on disk]`,
+          output: `Successfully appended to ${path} [verified: ${stat.size} bytes on disk]${warning}`,
         };
       } else {
         await fs.writeFile(path, content, "utf-8");
         const stat = await fs.stat(path);
+        const validation = await validateSyntax(path, content);
+        const warning = formatValidationWarning(validation);
         return {
           success: true,
-          output: `Successfully wrote ${path} [verified: ${stat.size} bytes on disk]`,
+          output: `Successfully wrote ${path} [verified: ${stat.size} bytes on disk]${warning}`,
         };
       }
     } catch (error) {
@@ -289,9 +301,12 @@ export class FileEditTool extends BaseTool {
       await fs.writeFile(path, content, "utf-8");
       const stat = await fs.stat(path);
 
+      const validation = await validateSyntax(path, content);
+      const warning = formatValidationWarning(validation);
+
       return {
         success: true,
-        output: `Successfully edited ${path} [verified: ${stat.size} bytes on disk]`,
+        output: `Successfully edited ${path} [verified: ${stat.size} bytes on disk]${warning}`,
       };
     } catch (error) {
       return {

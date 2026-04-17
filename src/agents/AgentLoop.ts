@@ -33,6 +33,9 @@ import { LLMProviderFactory } from "../providers/LLMProviderFactory.js";
 import { Logger } from "../utils/Logger.js";
 import type { LoggingConfig } from "../utils/Logger.js";
 import { extractFiles } from "../utils/WholeFormatParser.js";
+import { setValidationConfig } from "../tools/SyntaxValidator.js";
+import { WorkspaceIsolator } from "../sandbox/WorkspaceIsolator.js";
+import type { IsolatedWorkspace } from "../sandbox/types.js";
 
 export class AgentLoop {
   private toolRegistry: ToolRegistry;
@@ -82,6 +85,11 @@ export class AgentLoop {
   // サブエージェントで許可されたツール名リスト
   private allowedTools?: string[];
 
+  // Sandbox Tier 1: 隔離作業ツリー (有効化された場合のみ)
+  private isolatedWorkspace?: IsolatedWorkspace;
+  // origin (本体) のパス。Tier 1 で basePath が workspace に切り替わった後もこれは元のまま
+  private originPath: string;
+
   constructor(
     llmProvider: ILLMProvider,
     basePath: string,
@@ -90,6 +98,7 @@ export class AgentLoop {
   ) {
     this.llmProvider = llmProvider;
     this.basePath = basePath;
+    this.originPath = basePath;
     this.isSubAgent = options?.isSubAgent ?? false;
     this.allowedTools = options?.allowedTools;
     this.toolRegistry = new ToolRegistry();
@@ -128,6 +137,14 @@ export class AgentLoop {
     }
     // CLI が initialize() 前に Logger.configure() を呼んだ場合はそちらを維持する
     this.log = Logger.get("AgentLoop");
+
+    // 構文チェック設定を SyntaxValidator のモジュール singleton にセット
+    setValidationConfig(this.configManager.getValidationConfig());
+
+    // Sandbox Tier 1: 作業ツリー分離 (サブエージェントは親の workspace を継承するため立てない)
+    if (!this.isSubAgent) {
+      await this.setupSandboxWorkspace();
+    }
 
     // Phase 2: コンテキストウィンドウ管理の初期化
     try {
@@ -488,6 +505,87 @@ export class AgentLoop {
       this.activeSkills,
     );
 
+    // no-tools モード判定: OllamaProvider が tools 送信を無効化している場合、
+    // システムプロンプトの主軸を whole-format 出力に切り替える。
+    // (Qwen3.6 MoE など、tool calling を呼べないローカルモデル向け)
+    const isNoToolsMode =
+      typeof (
+        this.llmProvider as unknown as { isToolsDisabled?: () => boolean }
+      ).isToolsDisabled === "function" &&
+      (
+        this.llmProvider as unknown as { isToolsDisabled: () => boolean }
+      ).isToolsDisabled();
+
+    if (isNoToolsMode) {
+      // CWD をピン留めして、モデルが相対パスの解釈でブレないようにする
+      // （Claude Code + Ollama の運用ノウハウ由来）
+      const cwd = (() => {
+        try {
+          return process.cwd();
+        } catch {
+          return "(unknown)";
+        }
+      })();
+
+      const noToolsSystemMessage = `You are LunaCode running in whole-format output mode.
+
+Tool calling is DISABLED for this model. You CANNOT and MUST NOT emit <tool_call> blocks — they will be ignored.
+Instead, output every file you want to create in this exact format (the file path MUST be on its own line immediately before a fenced code block):
+
+<relative/path/to/file.ext>
+\`\`\`<language>
+<full file contents>
+\`\`\`
+
+Path rules (STRICT):
+- Use paths RELATIVE to the project root (for example: "index.html", "src/game.js", "style.css").
+- Do NOT use absolute paths (no leading slash, no drive letters, no "~").
+- Do NOT include "./" prefixes or ".." segments.
+- The path line must contain ONLY the path — no quotes, no backticks, no prose.
+
+Content rules:
+- Emit COMPLETE file contents, not placeholders or "...".
+- Repeat the format above for each additional file you need to create or overwrite.
+- Do NOT add commentary before or after the file blocks beyond a short one-line description.
+- Do NOT say "I will create" or "Let me build" — actually emit the files now.
+
+Example for a request "create a hello world HTML":
+index.html
+\`\`\`html
+<!DOCTYPE html>
+<html><body><h1>Hello</h1></body></html>
+\`\`\`
+
+Current working directory (project root): ${cwd}
+All relative paths you emit will be resolved from this directory.
+
+Current project context (from memory):
+${memoryContent}
+
+Relevant search results:
+${relevantContext}
+
+Recent activity logs:
+${recentLogs}
+${longTermContext ? `\n${longTermContext}` : ""}`;
+
+      const existingSystemIndex0 = this.messages.findIndex(
+        (m) => m.role === "system",
+      );
+      if (existingSystemIndex0 >= 0) {
+        this.messages[existingSystemIndex0] = {
+          role: "system",
+          content: noToolsSystemMessage,
+        };
+      } else {
+        this.messages.unshift({
+          role: "system",
+          content: noToolsSystemMessage,
+        });
+      }
+      return await this.runLoop();
+    }
+
     const systemMessage = `You are LunaCode, an autonomous coding agent inspired by Claude Code.
 You have access to tools to help with coding tasks.
 Always think before acting, and use tools when appropriate.
@@ -622,6 +720,17 @@ When you have enough information or the task is complete, provide a clear, conci
   private recentToolCallHistory: string[] = [];
   private readonly DUPLICATE_TOOL_THRESHOLD = 3; // 同じツール+引数が何回で打ち切るか
 
+  // 空応答（content も tool_calls も空）が連続した回数。
+  // ローカルモデルがフリーズ的に空を返し続ける場合、50 回最後まで回すと
+  // 時間・トークンの無駄なので早期に打ち切る。
+  private consecutiveEmptyResponses: number = 0;
+  private readonly EMPTY_RESPONSE_THRESHOLD = 2;
+
+  // whole-format で最後にファイル書き込みが成功したイテレーション番号。
+  // 直後のイテレーションで「Task Complete ✅」のような完了サマリが来た場合に
+  // ハリネズミ検出を抑止し、正当な終了として扱うために使う。
+  private lastWholeFormatWriteIteration: number = -1;
+
   private async runLoop(): Promise<string> {
     let response = "";
     this.recentToolCallHistory = [];
@@ -734,6 +843,7 @@ When you have enough information or the task is complete, provide a clear, conci
         if (toolCalls && toolCalls.length > 0) {
           this.state.phase = "ACTING";
           this.retryCount = 0; // ツール検出成功でリトライカウンタリセット
+          this.consecutiveEmptyResponses = 0; // 空応答連続カウンタもリセット
 
           // 重複ツール呼び出し検出: 同じ {tool+args} が DUPLICATE_TOOL_THRESHOLD 回続いたら打ち切り
           const toolCallKey = toolCalls
@@ -1022,6 +1132,62 @@ Replace each placeholder with the REAL, COMPLETE implementation code. Do NOT lea
           // ツールコールがない場合
           const content = assistantContent || "";
 
+          // Phase A(C): 運用ログで「何が返ってきたか」を可視化する
+          // warn レベルに上げることでデフォルトの interactive モード (level=warn) でも見える
+          {
+            const MAX_PREVIEW = 400;
+            const preview =
+              content.length > MAX_PREVIEW
+                ? `${content.substring(0, MAX_PREVIEW)}… (${content.length - MAX_PREVIEW} more chars)`
+                : content;
+            this.log.warn(
+              {
+                iteration: this.state.iteration,
+                retryCount: this.retryCount,
+                contentLength: content.length,
+                contentPreview: preview,
+              },
+              "[AgentLoop] ツール呼び出しなし。モデル応答の先頭をダンプします",
+            );
+          }
+
+          // ─── 空応答の連続検出（早期打ち切り） ─────────────────────────────
+          // content が完全に空＝モデルがフリーズしている可能性が高い。
+          // 2 回連続なら 50 イテレーション回し切らずに即座に打ち切る。
+          if (content.length === 0) {
+            this.consecutiveEmptyResponses++;
+            if (
+              this.consecutiveEmptyResponses >= this.EMPTY_RESPONSE_THRESHOLD
+            ) {
+              this.log.warn(
+                {
+                  iteration: this.state.iteration,
+                  streak: this.consecutiveEmptyResponses,
+                },
+                "[AgentLoop] 空応答が連続しました。モデルがフリーズしている可能性があるため処理を打ち切ります",
+              );
+              this.streamCallbacks?.onStatus?.({
+                iteration: this.state.iteration,
+                maxIterations: this.state.maxIterations,
+                phase: "calling",
+                toolName: "error",
+                toolSummary: `⚠️ 空応答が ${this.consecutiveEmptyResponses} 回連続しました。モデルを変更するか num_ctx を拡張してください`,
+              });
+              const modelLabel = (() => {
+                try {
+                  return this.llmProvider.getDefaultModel?.() ?? "unknown";
+                } catch {
+                  return "unknown";
+                }
+              })();
+              response = `⚠️ エラー: モデル (${modelLabel}) が ${this.consecutiveEmptyResponses} 回連続で空応答を返しました。\nこのモデルは tool calling に対応していないか、コンテキスト制限で応答を生成できない可能性があります。\n\n対処候補:\n1. よりツール対応の強いモデルに切り替える (例: qwen2.5-coder, llama3.1:70b-instruct)\n2. 環境変数 LUNACODE_OLLAMA_NUM_CTX=16384 でコンテキスト枠を拡張する`;
+              break;
+            }
+          } else {
+            // 非空応答が来たらカウンタリセット
+            this.consecutiveEmptyResponses = 0;
+          }
+
           // ─── Whole Format フォールバック ──────────────────────────────────
           // モデルがツール呼び出しの代わりにコードブロック形式でファイルを出力した場合
           // (Aider の "whole" 形式)、パースして実際にディスクへ書き込む
@@ -1059,12 +1225,44 @@ Replace each placeholder with the REAL, COMPLETE implementation code. Do NOT lea
                 );
               }
             }
+            // whole-format 書き込みが成功したので、カウンター類をリセット
+            // （tool call 成功時と同等の扱い）。これがないと次イテレーションの
+            // 「Task Complete」サマリがハリネズミ判定で再リトライされてしまう。
+            const anyWriteSucceeded = writeResults.some((r) =>
+              r.startsWith("✅"),
+            );
+            if (anyWriteSucceeded) {
+              this.retryCount = 0;
+              this.consecutiveEmptyResponses = 0;
+              this.lastWholeFormatWriteIteration = this.state.iteration;
+            }
+
             // ツール実行結果として会話に追加し、ループを継続
             this.messages.push({
               role: "user",
               content: `Files written from your response:\n${writeResults.join("\n")}\n\nTask complete. Please provide your final summary.`,
             });
             continue;
+          }
+
+          // ─── 直前の whole-format 書き込み直後の完了サマリ受け入れ ────────
+          // 直前イテレーションでファイル書き込みに成功し、今回は追加の whole-format
+          // ブロックもツール呼び出しもない場合、これは正当な完了サマリと判断して
+          // ループを終了する（ハリネズミ検出や空応答打ち切りに飲まれないようにする）。
+          if (
+            this.lastWholeFormatWriteIteration >= 0 &&
+            this.state.iteration === this.lastWholeFormatWriteIteration + 1
+          ) {
+            this.log.info(
+              {
+                iteration: this.state.iteration,
+                wroteAt: this.lastWholeFormatWriteIteration,
+                summaryLength: content.length,
+              },
+              "[AgentLoop] whole-format 書き込み直後のサマリを最終応答として受理します",
+            );
+            response = content.length > 0 ? content : "Task complete.";
+            break;
           }
 
           // ─── リトライ条件の判定 ───────────────────────────────────────────
@@ -1099,7 +1297,51 @@ Replace each placeholder with the REAL, COMPLETE implementation code. Do NOT lea
               .map((t) => t.name)
               .join(", ");
 
+            // no-tools モード時は tool_call 例を出さず、whole-format のみを強制
+            const noToolsRetryActive =
+              typeof (
+                this.llmProvider as unknown as {
+                  isToolsDisabled?: () => boolean;
+                }
+              ).isToolsDisabled === "function" &&
+              (
+                this.llmProvider as unknown as {
+                  isToolsDisabled: () => boolean;
+                }
+              ).isToolsDisabled();
+
             let retryMessage: string;
+
+            if (noToolsRetryActive) {
+              // tool_call は絶対に出させない。whole-format のみを強制提示
+              this.log.info(
+                `[DEBUG] ⚠️ No-tools retry ${this.retryCount}/${this.maxRetries}: whole-format only`,
+              );
+              retryMessage = `You produced no file output. Tool calls are disabled for this model and will be ignored.
+Output the file(s) NOW using this exact format (nothing else):
+
+<relative/path/to/file.ext>
+\`\`\`<language>
+<full file contents>
+\`\`\`
+
+Path rules:
+- Use paths RELATIVE to the project root (e.g. "index.html", "src/game.js").
+- NO absolute paths, NO "./" prefix, NO "..".
+
+Concrete example for a Tetris HTML:
+index.html
+\`\`\`html
+<!DOCTYPE html>
+<html>
+<!-- full playable Tetris goes here, no placeholders -->
+</html>
+\`\`\`
+
+Emit the COMPLETE file body. Do NOT write "I will" or "Let me" — emit the file right now.`;
+              this.messages.push({ role: "user", content: retryMessage });
+              continue;
+            }
 
             if (claimsFileExists && this.retryCount === 1) {
               // ハリネズミ専用メッセージ: glob で実際に確認させる
@@ -1113,28 +1355,47 @@ You MUST use glob to check what files actually exist right now before responding
 </tool_call>`;
             } else if (isFirstIteration && this.retryCount === 1) {
               // 初回イテレーション: タスクに必要なツールを使わせる
+              // ※ tool_call 形式を出せないローカルモデル（Qwen3, Gemma 等）向けに
+              //   whole-format（ファイル名付きコードブロック）の経路も併記する
               this.log.info(
-                `[DEBUG] ⚠️ No tool calls on first iteration. Forcing tool use.`,
+                `[DEBUG] ⚠️ No tool calls on first iteration. Forcing tool use or whole-format output.`,
               );
-              retryMessage = `You did not use any tools. The task requires you to use tools — DO NOT answer from memory.
-First, check what files exist in the project:
+              retryMessage = `You did not produce any tool calls or file output. Do NOT just declare intent in prose — actually emit the file(s) now.
+
+Choose ONE of the two formats below and output ONLY that. No explanations before or after.
+
+FORMAT A — tool call (preferred when supported):
 <tool_call>
-{"name": "glob", "arguments": {"pattern": "*", "path": "."}}
-</tool_call>`;
+{"name": "write_file", "arguments": {"path": "index.html", "content": "<full file contents here>"}}
+</tool_call>
+
+FORMAT B — fenced code block with the file path on its own line (used when you cannot emit tool calls):
+index.html
+\`\`\`html
+<full file contents here>
+\`\`\`
+
+If the task needs multiple files, repeat FORMAT B for each file. Emit the COMPLETE file body, not placeholders.`;
             } else {
-              // 通常リトライ: 書式例を提示
+              // 通常リトライ: 両フォーマットを提示
               this.log.info(
                 `[DEBUG] ⚠️ No tool calls detected. Retry ${this.retryCount}/${this.maxRetries} with stronger prompt`,
               );
-              retryMessage = `You did not use any tools. You MUST respond with a tool call.
-Available tools: ${availableToolNames}
+              retryMessage = `You still produced no tool call and no file block. You must output the file(s) NOW using ONE of these formats:
 
-Example:
+FORMAT A (tool call):
 <tool_call>
 {"name": "write_file", "arguments": {"path": "index.html", "content": "..."}}
 </tool_call>
 
-Do NOT explain. Actually call the tool now.`;
+FORMAT B (fenced block with path on its own line — use this if you cannot produce tool calls):
+index.html
+\`\`\`html
+<full file contents>
+\`\`\`
+
+Available tools: ${availableToolNames}
+Do NOT explain. Emit the file contents now.`;
             }
 
             this.messages.push({ role: "user", content: retryMessage });
@@ -1326,6 +1587,87 @@ Do NOT explain. Actually call the tool now.`;
 
   getLongTermMemory(): LongTermMemory | undefined {
     return this.longTermMemory;
+  }
+
+  // ── Sandbox Tier 1: 作業ツリー分離 ────────────────────────────────────────
+  /**
+   * `.kairos/config.json` の `sandbox.tier === "workspace"` または
+   * `sandbox.workspace.enabled` が true なら、プロジェクトを
+   * `.kairos/sandbox/workspace/<sessionId>/` に複製して以降の操作をそこに閉じる。
+   *
+   * 無効 (既定) なら何もせず、既存挙動を維持する。
+   */
+  private async setupSandboxWorkspace(): Promise<void> {
+    const cfg = this.configManager.getSandboxConfig();
+    if (!cfg) return;
+    const tierEnabled =
+      cfg.tier === "workspace" || cfg.workspace?.enabled === true;
+    if (!tierEnabled) return;
+
+    try {
+      const workspace = await WorkspaceIsolator.create({
+        origin: this.originPath,
+        taskId: this.sessionId,
+        config: cfg.workspace ?? {},
+      });
+      this.isolatedWorkspace = workspace;
+      this.basePath = workspace.path;
+      // サブモジュール (MemorySystem, SkillLoader 等) は既に originPath で初期化済みなので、
+      // ここで chdir するとツール側 (BashTool / FileWriteTool) の相対パス解決が
+      // workspace 基点になる。副作用が大きいので明示ログを出す。
+      process.chdir(workspace.path);
+      this.log.info(
+        `📦 Sandbox workspace ready: ${workspace.path} (strategy=${workspace.strategy})`,
+      );
+    } catch (err) {
+      this.log.warn(
+        { err },
+        "Failed to set up sandbox workspace; continuing without isolation",
+      );
+    }
+  }
+
+  /** 現在の IsolatedWorkspace を返す (未初期化なら undefined) */
+  getIsolatedWorkspace(): IsolatedWorkspace | undefined {
+    return this.isolatedWorkspace;
+  }
+
+  /**
+   * サンドボックス workspace を破棄する。
+   * タスク成功時は事前に `workspace.merge()` を呼んで本体に反映してから、
+   * 失敗時は `keepOnFailure` 設定に従う。
+   */
+  async disposeSandboxWorkspace(
+    opts: {
+      merge?: boolean;
+      keepOnFailure?: boolean;
+      success?: boolean;
+    } = {},
+  ): Promise<void> {
+    if (!this.isolatedWorkspace) return;
+    const ws = this.isolatedWorkspace;
+    try {
+      if (opts.merge && opts.success !== false) {
+        const result = await ws.merge();
+        this.log.info(
+          `📦 Sandbox merged: ${result.applied.length} applied, ${result.conflicted.length} conflicted`,
+        );
+      }
+      const keep = opts.keepOnFailure ?? true;
+      if (opts.success === false && keep) {
+        this.log.info(`📦 Sandbox workspace kept for debugging: ${ws.path}`);
+        return;
+      }
+      await ws.cleanup();
+    } finally {
+      this.isolatedWorkspace = undefined;
+      this.basePath = this.originPath;
+      try {
+        process.chdir(this.originPath);
+      } catch {
+        // chdir 失敗は致命的でないので無視
+      }
+    }
   }
 }
 
