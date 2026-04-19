@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+**Phase 26: `lunacode sandbox` CLI サブコマンド（2026-04-19）**
+
+Phase 24.1.6 の残タスクだった手動管理 CLI を実装。エージェントが落ちたり
+`keepOnFailure` で残った workspace をコマンドラインから確認・整理できる。
+
+- `lunacode sandbox list [--json]`: `.kairos/sandbox/workspace/` 配下を列挙
+  （taskId / size / age / created / strategy-hint の表、または JSON 出力）
+- `lunacode sandbox diff <taskId> [--only <paths...>]`: workspace と origin の
+  差分を表示。`WorkspaceIsolator.open()` + `diff()` に委譲
+- `lunacode sandbox merge <taskId> [--apply] [--only <paths...>]`: workspace →
+  origin へのマージ。**既定 dry-run** で、実反映には `--apply` が必要
+- `lunacode sandbox clean [<taskId>|--all|--older-than <days>] [--dry-run] [--yes]`:
+  削除。`--all` は TTY で確認プロンプト、`--yes`/`-y` で省略可能
+- 実装: `src/sandbox/cli.ts`（新規）+ `src/cli.ts` の commander.js 登録
+- テスト: `tests/cli-sandbox.test.ts` 10 pass
+
 ### Changed
 
 **Phase 25: サンドボックス実装の堅牢化（2026-04-19）**

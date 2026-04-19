@@ -215,6 +215,74 @@ Tier 2 / Tier 3 のスコープと導入時期は [`ROADMAP.md`](../ROADMAP.md) 
 
 ---
 
+## 9.5 CLI サブコマンド（Phase 26）
+
+残存 workspace の確認・整理用に `lunacode sandbox` サブコマンドが用意されている。
+`AgentLoop` が正常終了した場合は workspace が自動で片付くが、異常終了・`keepOnFailure` が `true`・
+手動 kill などで残るケースがあるので、その運用窓口。
+
+### 9.5.1 コマンド一覧
+
+| コマンド | 役割 |
+|----------|------|
+| `lunacode sandbox list` | workspace を列挙（テーブル。`--json` で機械可読） |
+| `lunacode sandbox diff <taskId>` | workspace と origin の差分を表示（`--only <paths...>` で対象絞り込み） |
+| `lunacode sandbox merge <taskId>` | workspace → origin にマージ。**既定 dry-run**、実反映は `--apply` を付ける |
+| `lunacode sandbox clean [<taskId>]` | workspace を削除。`--all` / `--older-than <days>` / `--dry-run` / `--yes` を受け付ける |
+
+すべて `process.cwd()` を origin として解釈するので、プロジェクトルートで実行する前提。
+
+### 9.5.2 使用例
+
+```bash
+# 残っている workspace を確認
+$ lunacode sandbox list
+📦 Sandbox workspaces (2)
+
+TASK ID         SIZE     AGE   CREATED              STRATEGY
+--------------  -------  ----  -------------------  ----------
+session_abc123  12.4 MB  2h    2026-04-19 10:15:02  copy-like
+session_def456  8.1 MB   1d    2026-04-18 09:03:41  git-worktree
+
+  basePath: /path/to/project/.kairos/sandbox/workspace
+
+# 差分を確認
+$ lunacode sandbox diff session_abc123
+M src/foo.ts
+A src/bar.ts
+
+# 一回 dry-run して、問題なければ apply
+$ lunacode sandbox merge session_abc123
+🔍 Dry-run merge preview for session_abc123 (pass --apply to actually merge)
+
+  applied    : 2
+  conflicted : 0
+  skipped    : 0
+
+$ lunacode sandbox merge session_abc123 --apply
+
+# 古いものだけ掃除
+$ lunacode sandbox clean --older-than 7 --yes
+
+# 全消し
+$ lunacode sandbox clean --all
+About to delete 2 workspace(s):
+  - session_abc123  (12.4 MB)  /path/.../session_abc123
+  - session_def456  (8.1 MB)   /path/.../session_def456
+
+Proceed? [y/N]
+```
+
+### 9.5.3 注意
+
+- `merge --apply` は既存ファイルを上書きする。心配なら `--only <paths...>` で対象を
+  絞るか、先に `git commit` / `git stash` しておくこと。
+- `clean` に `--dry-run` を付ければ削除候補だけ表示して実際には消さない。
+- 実装は `src/sandbox/cli.ts`。`WorkspaceIsolator.open()` 経由で diff / merge を呼ぶので、
+  Phase 25 の堅牢化（mtime fast-path 削除、size 一致時も内容比較）の恩恵をそのまま受ける。
+
+---
+
 ## 10. トラブルシュート
 
 **Q. `Cannot create workspace: destination already exists` と言われる**

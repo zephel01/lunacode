@@ -2140,6 +2140,77 @@ function buildProgram(): Command {
     await handleMemoryCommand(["memory", "stats"]);
   });
 
+  // ---- sandbox (Phase 26: Phase 24.1.6 の残件) ----
+  const sandboxCmd = program
+    .command("sandbox")
+    .description("Manage sandbox workspaces (.kairos/sandbox/workspace)");
+
+  sandboxCmd
+    .command("list")
+    .alias("ls")
+    .description("List existing sandbox workspaces")
+    .option("--json", "Output as JSON")
+    .action(async (opts: OptionValues) => {
+      const { handleSandboxCommand } = await import("./sandbox/cli.js");
+      const args = ["list"];
+      if (opts.json) args.push("--json");
+      await handleSandboxCommand({ origin: process.cwd() }, args);
+    });
+
+  sandboxCmd
+    .command("diff <taskId>")
+    .description("Show diff between workspace and origin")
+    .option("--only <paths...>", "Limit to these paths")
+    .action(async (taskId: string, opts: OptionValues) => {
+      const { handleSandboxCommand } = await import("./sandbox/cli.js");
+      const args = ["diff", taskId];
+      if (Array.isArray(opts.only) && opts.only.length > 0) {
+        args.push("--only", ...(opts.only as string[]));
+      }
+      await handleSandboxCommand({ origin: process.cwd() }, args);
+    });
+
+  sandboxCmd
+    .command("merge <taskId>")
+    .description("Merge workspace → origin (default: dry-run)")
+    .option("--apply", "Actually apply the merge (default is dry-run)")
+    .option("--only <paths...>", "Limit to these paths")
+    .action(async (taskId: string, opts: OptionValues) => {
+      const { handleSandboxCommand } = await import("./sandbox/cli.js");
+      const args = ["merge", taskId];
+      if (opts.apply) args.push("--apply");
+      if (Array.isArray(opts.only) && opts.only.length > 0) {
+        args.push("--only", ...(opts.only as string[]));
+      }
+      await handleSandboxCommand({ origin: process.cwd() }, args);
+    });
+
+  sandboxCmd
+    .command("clean [taskId]")
+    .alias("rm")
+    .description("Delete sandbox workspaces")
+    .option("--all", "Delete every workspace")
+    .option("--older-than <days>", "Delete workspaces older than N days")
+    .option("--dry-run", "Show what would be deleted without deleting")
+    .option("-y, --yes", "Skip confirmation prompt")
+    .action(async (taskId: string | undefined, opts: OptionValues) => {
+      const { handleSandboxCommand } = await import("./sandbox/cli.js");
+      const args: string[] = ["clean"];
+      if (taskId) args.push(taskId);
+      if (opts.all) args.push("--all");
+      if (opts.olderThan != null) {
+        args.push("--older-than", String(opts.olderThan));
+      }
+      if (opts.dryRun) args.push("--dry-run");
+      if (opts.yes) args.push("--yes");
+      await handleSandboxCommand({ origin: process.cwd() }, args);
+    });
+
+  sandboxCmd.action(async () => {
+    const { handleSandboxCommand } = await import("./sandbox/cli.js");
+    await handleSandboxCommand({ origin: process.cwd() }, ["list"]);
+  });
+
   // ---- skill ----
   const skillCmd = program
     .command("skill")
