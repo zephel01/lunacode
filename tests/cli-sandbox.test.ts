@@ -130,7 +130,6 @@ describe("sandbox CLI - Phase 26", () => {
   });
 
   test("sandbox diff: 存在しない taskId は exit code 1", async () => {
-    const prevCode = process.exitCode;
     const errors: string[] = [];
     const origErr = console.error;
     console.error = (...args: unknown[]) => {
@@ -142,7 +141,9 @@ describe("sandbox CLI - Phase 26", () => {
       expect(errors.join("\n")).toMatch(/No such workspace/);
     } finally {
       console.error = origErr;
-      process.exitCode = prevCode;
+      // bun は一度セットされた process.exitCode を undefined への代入で消さないので、
+      // テスト後は明示的に 0 に戻してテストランナー終了時の誤判定を防ぐ。
+      process.exitCode = 0;
     }
   });
 
@@ -233,14 +234,14 @@ describe("sandbox CLI - Phase 26", () => {
     const origLog = console.log;
     console.error = () => {};
     console.log = () => {};
-    const prev = process.exitCode;
     try {
       await handleSandboxCommand({ origin }, ["bogus"]);
       expect(process.exitCode).toBe(1);
     } finally {
       console.error = origErr;
       console.log = origLog;
-      process.exitCode = prev;
+      // bun は undefined への代入で exitCode をクリアしないので明示的に 0 に戻す。
+      process.exitCode = 0;
     }
   });
 });
