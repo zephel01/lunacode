@@ -129,7 +129,13 @@ describe("ReflinkStrategy.isSupported - Phase 25: プローブ後片付け", () 
 // ────────────────────────────────────────────────────────────────────────────
 
 function initGitRepo(dir: string): void {
-  const env = { ...process.env, GIT_AUTHOR_NAME: "test", GIT_AUTHOR_EMAIL: "t@e", GIT_COMMITTER_NAME: "test", GIT_COMMITTER_EMAIL: "t@e" };
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "test",
+    GIT_AUTHOR_EMAIL: "t@e",
+    GIT_COMMITTER_NAME: "test",
+    GIT_COMMITTER_EMAIL: "t@e",
+  };
   spawnSync("git", ["init", "-q", "-b", "main"], { cwd: dir, env });
   spawnSync("git", ["config", "user.email", "t@e"], { cwd: dir, env });
   spawnSync("git", ["config", "user.name", "test"], { cwd: dir, env });

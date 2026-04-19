@@ -328,7 +328,9 @@ async function findWorktreeBranch(
     if (!brLine) return null; // detached HEAD
     // "branch refs/heads/<name>" → "<name>"
     const ref = brLine.slice("branch ".length).trim();
-    return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
+    return ref.startsWith("refs/heads/")
+      ? ref.slice("refs/heads/".length)
+      : ref;
   }
   return null;
 }
