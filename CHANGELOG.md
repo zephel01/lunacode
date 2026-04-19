@@ -6,7 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-次期バージョンで予定している変更はありません。
+### Changed
+
+**Phase 25: サンドボックス実装の堅牢化（2026-04-19）**
+
+- `src/security/SandboxEnvironment.ts` を `@deprecated` マーク。コンストラクタで初回のみ
+  警告ログを出すようにした。ルール判定が文字列 `includes()` のみ、allow ルールが評価
+  されていない、`maxExecutionTime` が `console.warn` するだけで実際のプロセスを殺さない
+  等、セキュリティ機能として実効性が乏しかったため。代替は `WorkspaceIsolator`（Tier 1）
+- `WorkspaceIsolator.filesDiffer` の mtime fast-path を削除。`APFS clone` / `reflink` /
+  `CopyStrategy` の `utimes` は mtime を保存するため、同一サイズ・同一 mtime でも内容が
+  異なるケース（同じ長さの文字列差し替えなど）を見落としていた
+- `ReflinkStrategy.isSupported` のプローブディレクトリ名に `pid + timestamp + random`
+  suffix を付与し、`try/finally` で確実に後片付けするようにした。従来はプロセス死亡時に
+  origin に `.luna-reflink-probe/` が残存、並列起動で race が発生していた
+- `GitWorktreeStrategy.clone` のブランチ名に random suffix を追加
+  （`sandbox/<basename>-<timestamp>-<random>`）。事前の無条件 `git branch -D` を削除し、
+  cleanup 時は `git worktree list --porcelain` で対象ブランチを特定 → `show-ref` で
+  存在確認 → 削除、の流れに変更。ユーザーが偶然同名ブランチを持っていた場合の誤削除を
+  防止
+- `WorkspaceSandboxConfig.chdirOnActivate` フラグを追加（既定 `true` で後方互換）。
+  `false` にするとプロセス全体の `process.chdir()` を行わず、`AgentLoop.basePath` 経由で
+  workspace パスを伝播するモード（ツール側の完全対応は Phase 26 以降）
+
+### Docs
+
+- `docs/inside/plan.md` に Phase 25 セクションを追加
 
 ---
 

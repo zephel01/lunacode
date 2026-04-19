@@ -393,9 +393,11 @@ async function filesDiffer(a: string, b: string): Promise<boolean> {
   if (!sb) return true; // origin に存在しない = 新規
   if (!sa) return false; // workspace 側に無い = 処理不要
   if (sa.size !== sb.size) return true;
-  // 最終更新が同じ & size が同じなら同一とみなす (fast path)
-  if (sa.mtimeMs === sb.mtimeMs) return false;
-  // 内容比較
+
+  // Phase 25: mtime fast-path は削除。
+  // APFS clone / reflink / CopyStrategy の utimes は mtime を保存するため、
+  // 「size 一致 && mtime 一致 → 同一」とすると、ファイルサイズを変えない置換
+  // （同一長の文字列差し替えなど）を見落とす。size 一致時は必ず内容を比較する。
   const { readFile } = await import("node:fs/promises");
   const [ca, cb] = await Promise.all([readFile(a), readFile(b)]);
   return !ca.equals(cb);

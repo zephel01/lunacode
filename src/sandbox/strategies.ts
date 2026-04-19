@@ -172,10 +172,14 @@ export const ReflinkStrategy: WorkspaceStrategyImpl = {
     if (process.platform !== "linux") return false;
     // origin と同じ FS 上で reflink が可能かを検証する。
     // `--reflink=always` は reflink できない FS では失敗するので判定に使える。
+    //
+    // Phase 25: プローブディレクトリ名をランダム化し、try/finally で必ず後片付け
+    // する。以前は `.luna-reflink-probe` 固定で、プロセス死亡時にゴミが残り、
+    // 並列起動では race が発生していた。
+    const probeId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const probeDir = path.join(origin, `.luna-reflink-probe-${probeId}`);
     try {
       const { writeFile } = await import("node:fs/promises");
-      // origin と同じ FS になるように origin 内の隠しディレクトリに置く
-      const probeDir = path.join(origin, ".luna-reflink-probe");
       await mkdir(probeDir, { recursive: true });
       const src = path.join(probeDir, "src");
       const dst = path.join(probeDir, "dst");
@@ -183,10 +187,12 @@ export const ReflinkStrategy: WorkspaceStrategyImpl = {
       const result = await runCommand("cp", ["--reflink=always", src, dst], {
         timeoutMs: 5000,
       });
-      await rm(probeDir, { recursive: true, force: true }).catch(() => {});
       return result.ok;
     } catch {
       return false;
+    } finally {
+      // どのケースでも必ず削除する (例外で throw されていても)
+      await rm(probeDir, { recursive: true, force: true }).catch(() => {});
     }
   },
   async clone(params: CloneParams): Promise<void> {
@@ -224,18 +230,22 @@ export const GitWorktreeStrategy: WorkspaceStrategyImpl = {
     return probe.ok;
   },
   async clone(params: CloneParams): Promise<void> {
-    const branch = `sandbox/${path.basename(params.target)}`;
+    // Phase 25: ブランチ名に random suffix を付け、予測可能性を排除する。
+    // 以前は `sandbox/<basename>` 固定で、ユーザーが偶然同名のブランチを持って
+    // いた場合に事前の `git branch -D` で黙って消えるリスクがあった。
+    const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    const branch = `sandbox/${path.basename(params.target)}-${suffix}`;
     await mkdir(path.dirname(params.target), { recursive: true });
-    // 既存ブランチがあれば削除 (冪等性確保)
-    await runCommand("git", ["branch", "-D", branch], {
-      cwd: params.origin,
-      timeoutMs: 5000,
-    });
-    // 既存の worktree 登録を剥がす (パスが被った場合)
+
+    // 既存の worktree 登録を剥がす (パスが被った場合のみ。
+    // WorkspaceIsolator.create() が事前に target 存在チェックしているので
+    // 通常はここに入らないが、前回プロセスが異常終了して worktree 登録だけ
+    // 残っているケースに備える)。
     await runCommand("git", ["worktree", "remove", "--force", params.target], {
       cwd: params.origin,
       timeoutMs: 10000,
     });
+
     const result = await runCommand(
       "git",
       ["worktree", "add", "-b", branch, params.target, "HEAD"],
@@ -246,10 +256,16 @@ export const GitWorktreeStrategy: WorkspaceStrategyImpl = {
         `git worktree add failed: ${result.stderr || result.signal || "unknown"}`,
       );
     }
+
     // git worktree は除外機構が無いので、後から削除する
     await pruneExcluded(params.target, params.excludePatterns);
   },
   async cleanup(workspace: IsolatedWorkspace): Promise<void> {
+    // worktree remove の前に、`git worktree list --porcelain` からこの worktree に
+    // 関連付けられたブランチ名を取得しておく。sentinel ファイル方式だと merge
+    // 時にゴミが origin に伝播する恐れがあるため、git 自身の情報源を使う。
+    const branch = await findWorktreeBranch(workspace.origin, workspace.path);
+
     // git worktree remove → 失敗時はディレクトリを手動削除
     const result = await runCommand(
       "git",
@@ -259,14 +275,63 @@ export const GitWorktreeStrategy: WorkspaceStrategyImpl = {
     if (!result.ok) {
       await rm(workspace.path, { recursive: true, force: true });
     }
-    // ブランチも削除 (履歴が必要なら autoMerge 側で先に merge してから呼ぶ)
-    const branch = `sandbox/${path.basename(workspace.path)}`;
-    await runCommand("git", ["branch", "-D", branch], {
-      cwd: workspace.origin,
-      timeoutMs: 5000,
-    });
+
+    // ブランチ削除は、`sandbox/` prefix で始まり show-ref で存在確認できた
+    // ものだけを対象にする。sentinel 不在 / 外部 worktree などで特定できない
+    // 場合は、ユーザーの legitimate branch を誤削除しないよう skip する。
+    if (branch && branch.startsWith("sandbox/")) {
+      const exists = await runCommand(
+        "git",
+        ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`],
+        { cwd: workspace.origin, timeoutMs: 5000 },
+      );
+      if (exists.ok) {
+        await runCommand("git", ["branch", "-D", branch], {
+          cwd: workspace.origin,
+          timeoutMs: 5000,
+        });
+      }
+    }
   },
 };
+
+/**
+ * `git worktree list --porcelain` の出力から、指定 worktree path に関連付け
+ * されたブランチ名を返す。見つからない / 取得失敗時は null。
+ *
+ * 出力フォーマット:
+ *   worktree /path/to/wt
+ *   HEAD <sha>
+ *   branch refs/heads/<branch-name>   ← detach されていない場合のみ
+ *   (空行)
+ */
+async function findWorktreeBranch(
+  origin: string,
+  workspacePath: string,
+): Promise<string | null> {
+  const res = await runCommand("git", ["worktree", "list", "--porcelain"], {
+    cwd: origin,
+    timeoutMs: 10000,
+  });
+  if (!res.ok) return null;
+
+  const resolvedTarget = path.resolve(workspacePath);
+  const blocks = res.stdout.split(/\r?\n\r?\n/);
+  for (const block of blocks) {
+    const lines = block.split(/\r?\n/);
+    const wtLine = lines.find((l) => l.startsWith("worktree "));
+    if (!wtLine) continue;
+    const wtPath = path.resolve(wtLine.slice("worktree ".length).trim());
+    if (wtPath !== resolvedTarget) continue;
+
+    const brLine = lines.find((l) => l.startsWith("branch "));
+    if (!brLine) return null; // detached HEAD
+    // "branch refs/heads/<name>" → "<name>"
+    const ref = brLine.slice("branch ".length).trim();
+    return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
+  }
+  return null;
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Strategy: copy (ポータブル fallback)

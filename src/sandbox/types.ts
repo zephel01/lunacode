@@ -34,6 +34,16 @@ export interface WorkspaceSandboxConfig {
   keepOnFailure?: boolean;
   /** クローン時に除外するパス (basename or relative path) */
   excludePatterns?: string[];
+  /**
+   * workspace 作成時にプロセス全体の `process.chdir(workspace.path)` を呼ぶか。
+   * 既定 `true` (後方互換)。
+   *
+   * `true` にするとツールの相対パス解決が workspace 基点になるが、
+   * プロセス全体の cwd が変わるため、logger / 並列タスク / テスト環境に
+   * 副作用を及ぼす。Phase 26 以降で `false` を既定にし、ツール側に
+   * `basePath` を注入する形に移行予定。
+   */
+  chdirOnActivate?: boolean;
 }
 
 /** コンテナサンドボックス設定 (Tier 2, 将来実装) */

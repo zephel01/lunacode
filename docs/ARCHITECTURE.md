@@ -45,7 +45,7 @@ src/
 │   └── AutoDream.ts       # バックグラウンド統合
 ├── security/
 │   ├── AccessControl.ts   # RBAC
-│   └── SandboxEnvironment.ts  # サンドボックス
+│   └── SandboxEnvironment.ts  # @deprecated Phase 25 (src/sandbox/ に置き換え)
 ├── buddy/
 │   └── BuddyMode.ts      # コンパニオンAI
 ├── notifications/

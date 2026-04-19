@@ -18,6 +18,8 @@ LunaCode は LLM が生成したコードを **ユーザのローカルマシン
 
 1. `.kairos/sandbox/workspace/<taskId>/` にプロジェクトの隔離コピーを作成
 2. プロセスの作業ディレクトリ (`process.cwd()`) をそのコピー先に切り替え
+   （`workspace.chdirOnActivate: false` なら chdir を省略し、`AgentLoop.basePath`
+   経由で伝播。Phase 25 で追加）
 3. 以降の `write_file` / `edit_file` / `bash` などは全て workspace 内で完結
 4. タスク終了時、変更を `diff()` で確認し、必要なら `merge()` で本体へ反映
 
@@ -137,21 +139,23 @@ __pycache__
       "basePath": ".kairos/sandbox/workspace",
       "autoMerge": false,
       "keepOnFailure": true,
-      "excludePatterns": ["target"]
+      "excludePatterns": ["target"],
+      "chdirOnActivate": true
     }
   }
 }
 ```
 
-| フィールド                  | 型                           | 既定                        | 説明                                          |
-| --------------------------- | ---------------------------- | --------------------------- | --------------------------------------------- |
-| `tier`                      | `"none"` \| `"workspace"` 等 | `"none"`                    | `"workspace"` で Tier 1 を有効化              |
-| `workspace.enabled`         | boolean                      | `tier` による               | `tier` の代わりにこれでも有効化できる         |
-| `workspace.strategy`        | `"auto"` \| 各ストラテジー名 | `"auto"`                    | 使用する隔離方式                              |
-| `workspace.basePath`        | string                       | `.kairos/sandbox/workspace` | workspace 作成先（origin 相対 or 絶対）       |
-| `workspace.autoMerge`       | boolean                      | `false`                     | 成功時に自動で本体に書き戻す（現状は要注意）  |
-| `workspace.keepOnFailure`   | boolean                      | `true`                      | 失敗時に workspace を残してデバッグ可能にする |
-| `workspace.excludePatterns` | string[]                     | 上記既定                    | ユーザ指定は既定に「追加」される              |
+| フィールド                    | 型                           | 既定                        | 説明                                                                                 |
+| ----------------------------- | ---------------------------- | --------------------------- | ------------------------------------------------------------------------------------ |
+| `tier`                        | `"none"` \| `"workspace"` 等 | `"none"`                    | `"workspace"` で Tier 1 を有効化                                                     |
+| `workspace.enabled`           | boolean                      | `tier` による               | `tier` の代わりにこれでも有効化できる                                                |
+| `workspace.strategy`          | `"auto"` \| 各ストラテジー名 | `"auto"`                    | 使用する隔離方式                                                                     |
+| `workspace.basePath`          | string                       | `.kairos/sandbox/workspace` | workspace 作成先（origin 相対 or 絶対）                                              |
+| `workspace.autoMerge`         | boolean                      | `false`                     | 成功時に自動で本体に書き戻す（現状は要注意）                                         |
+| `workspace.keepOnFailure`     | boolean                      | `true`                      | 失敗時に workspace を残してデバッグ可能にする                                        |
+| `workspace.excludePatterns`   | string[]                     | 上記既定                    | ユーザ指定は既定に「追加」される                                                     |
+| `workspace.chdirOnActivate`   | boolean                      | `true`                      | workspace 作成時に `process.chdir()` を呼ぶか。`false` なら cwd を変えず basePath 伝播 |
 
 ---
 
@@ -228,6 +232,26 @@ workspace が残っている可能性があるので、`.kairos/sandbox/workspac
 
 既定の除外に漏れているディレクトリがあります。`excludePatterns` に追加するか、
 Node/Rust のように CoW が効く FS なら `strategy: "apfs-clone"` / `reflink` を使ってください。
+
+---
+
+## 11. 旧 `SandboxEnvironment` について（Phase 25 で非推奨）
+
+`src/security/SandboxEnvironment.ts` にはかつて別系統のサンドボックス実装がありました
+（Phase 4.2 由来）。以下の理由で **Phase 25 (2026-04-19) から `@deprecated` となり、
+セキュリティ機能として使用するべきではありません**:
+
+- ルール判定が `command.includes(pattern)` のみ。`rm  -rf /`（二重空白）、
+  `/bin/rm -rf /`、`$(echo rm) -rf /` 等で容易にバイパス可能
+- `allow` ルールは評価されておらず `deny` のみチェック
+- `maxExecutionTime` は `console.warn` するだけでプロセスを殺さない
+- `allowNetwork` / `maxMemoryUsage` は設定を受け取るのみで何も強制しない
+- 「サンドボックス」を謳っているが実体は `cwd` 変更と環境変数追加のみ
+
+後方互換のためファイル自体は残していますが、コンストラクタ呼び出し時に警告ログが
+出ます。新規コードは本ドキュメントで説明する `WorkspaceIsolator`（Tier 1）を使用して
+ください。プロセスレベルの隔離が必要な場合は Phase 26 以降で追加予定の Tier 2 /
+Tier 3 を待ってください。
 
 ---
 

@@ -1612,13 +1612,24 @@ Do NOT explain. Emit the file contents now.`;
       });
       this.isolatedWorkspace = workspace;
       this.basePath = workspace.path;
-      // サブモジュール (MemorySystem, SkillLoader 等) は既に originPath で初期化済みなので、
-      // ここで chdir するとツール側 (BashTool / FileWriteTool) の相対パス解決が
-      // workspace 基点になる。副作用が大きいので明示ログを出す。
-      process.chdir(workspace.path);
-      this.log.info(
-        `📦 Sandbox workspace ready: ${workspace.path} (strategy=${workspace.strategy})`,
-      );
+
+      // Phase 25: chdir は設定で切り替え可能にした。既定は従来通り true だが、
+      // false にするとプロセス全体の cwd を変えずに workspace.path を
+      // `this.basePath` 経由でツールに渡す形になる (ツール側の対応が必要)。
+      const shouldChdir = cfg.workspace?.chdirOnActivate ?? true;
+      if (shouldChdir) {
+        // サブモジュール (MemorySystem, SkillLoader 等) は既に originPath で初期化済みなので、
+        // ここで chdir するとツール側 (BashTool / FileWriteTool) の相対パス解決が
+        // workspace 基点になる。副作用が大きいので明示ログを出す。
+        process.chdir(workspace.path);
+        this.log.info(
+          `📦 Sandbox workspace ready: ${workspace.path} (strategy=${workspace.strategy}, chdir=true)`,
+        );
+      } else {
+        this.log.info(
+          `📦 Sandbox workspace ready: ${workspace.path} (strategy=${workspace.strategy}, chdir=false, basePath 経由で伝播)`,
+        );
+      }
     } catch (err) {
       this.log.warn(
         { err },
