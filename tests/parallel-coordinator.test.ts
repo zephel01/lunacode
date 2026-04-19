@@ -161,6 +161,18 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
       },
     );
 
+    // エラーがあれば原因を露出する (CI デバッグ用)
+    const failed = results.filter((r) => r.status !== "success");
+    if (failed.length > 0) {
+      console.error(
+        "[DEBUG 2-task test] failed results:",
+        failed.map((r) => ({
+          id: r.taskId,
+          status: r.status,
+          err: r.error?.message,
+        })),
+      );
+    }
     expect(results).toHaveLength(2);
     expect(results[0].status).toBe("success");
     expect(results[1].status).toBe("success");
@@ -205,6 +217,9 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
     // バリア方式: 少なくとも 2 件の chatCompletion が同時に入るまで
     // どの呼び出しも return しない。これにより AgentLoop.initialize() の
     // 揺らぎに依存せず、並行度ピークを決定論的に観測できる。
+    //
+    // safety timeout は CI の遅い runner でも 2 件目が必ず届くよう 15s に設定。
+    // unref() で bun test のイベントループが hang しないようにする。
     let entered = 0;
     let current = 0;
     let peak = 0;
@@ -221,12 +236,15 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
         peak = Math.max(peak, current);
         entered++;
         if (entered >= 2) resolveBarrier();
-        // 2 件入ったら barrier を解放し、それまでは最大 3 秒だけ待つ
-        // (safety timeout: バリアが成立しない場合でも suite を hang させない)
-        await Promise.race([
-          barrier,
-          new Promise<void>((r) => setTimeout(r, 3000)),
-        ]);
+        // 2 件入ったら barrier を解放、それまでは最大 15 秒だけ待つ
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 15000);
+          timer.unref?.();
+          barrier.then(() => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
         current--;
         return {
           id: "b",
@@ -274,6 +292,18 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
       },
     );
 
+    // エラーが出たら理由を露出する (CI デバッグ用)
+    const failed = results.filter((r) => r.status !== "success");
+    if (failed.length > 0) {
+      console.error(
+        "[DEBUG concurrency test] failed results:",
+        failed.map((r) => ({
+          id: r.taskId,
+          status: r.status,
+          err: r.error?.message,
+        })),
+      );
+    }
     expect(results.every((r) => r.status === "success")).toBe(true);
     expect(peak).toBeGreaterThanOrEqual(2);
   });
