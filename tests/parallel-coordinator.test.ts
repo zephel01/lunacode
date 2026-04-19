@@ -256,17 +256,31 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
       status: r.status,
       err: r.error?.message,
     }));
-    // 診断情報を常に出す (CI での失敗解析用)
-    // eslint-disable-next-line no-console
-    console.error(
-      `[parallel-coord diag] peak=${shared.peakConcurrent} elapsed=${elapsed}ms durations=${JSON.stringify(
-        results.map((r) => ({
-          id: r.taskId,
-          dur: r.durationMs,
-          st: r.status,
-        })),
-      )}`,
-    );
+    // 診断情報を常に stderr に出す (CI での失敗解析用)
+    // process.stderr を直接叩くと bun test のキャプチャを受けずに
+    // 確実に CI ログに残せる。
+    const diagLine = `[parallel-coord diag] peak=${shared.peakConcurrent} elapsed=${elapsed}ms summary=${JSON.stringify(summary)} durations=${JSON.stringify(
+      results.map((r) => ({
+        id: r.taskId,
+        dur: r.durationMs,
+        st: r.status,
+      })),
+    )}`;
+    process.stderr.write(diagLine + "\n");
+
+    // すべての task が success であることを確認
+    //   ※ 失敗時の diff に diag line を含めて原因をすぐ特定できるよう、
+    //      メッセージ付きで別途 assertion する
+    const allSuccess = results.every((r) => r.status === "success");
+    if (!allSuccess) {
+      throw new Error(
+        `Not all tasks succeeded. ${diagLine}\nfull results: ${JSON.stringify(
+          summary,
+          null,
+          2,
+        )}`,
+      );
+    }
     expect(summary).toEqual([
       { id: "p1", status: "success", err: undefined },
       { id: "p2", status: "success", err: undefined },
@@ -284,7 +298,7 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
 
     if (!concurrencyProven) {
       throw new Error(
-        `[parallel-coord] concurrency not proven: peak=${shared.peakConcurrent} (need >=2) AND elapsed=${elapsed}ms (need <${SERIAL_MIN_MS - 500}ms)`,
+        `Concurrency not proven. ${diagLine}\nneed: peak>=2 OR elapsed<${SERIAL_MIN_MS - 500}ms`,
       );
     }
     expect(concurrencyProven).toBe(true);
