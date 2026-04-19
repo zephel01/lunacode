@@ -130,8 +130,8 @@ describe("VectorStore", () => {
 
   test("ベクトル検索: 類似度順で返す", async () => {
     const entries = [
-      makeEntry("A", [1, 0, 0]),  // query と完全一致
-      makeEntry("B", [0, 1, 0]),  // 直交
+      makeEntry("A", [1, 0, 0]), // query と完全一致
+      makeEntry("B", [0, 1, 0]), // 直交
       makeEntry("C", [0.9, 0.1, 0]), // 高類似
     ];
     for (const e of entries) await store.add(e);
@@ -139,7 +139,9 @@ describe("VectorStore", () => {
     const results = store.search([1, 0, 0], 3);
     expect(results.length).toBeGreaterThan(0);
     // 最も類似度が高いものが先頭
-    expect(results[0].similarity).toBeGreaterThanOrEqual(results[results.length - 1].similarity);
+    expect(results[0].similarity).toBeGreaterThanOrEqual(
+      results[results.length - 1].similarity,
+    );
   });
 
   test("キーワード検索", async () => {
@@ -152,6 +154,36 @@ describe("VectorStore", () => {
     expect(results[0].entry.content).toContain("TypeScript");
   });
 
+  // Phase 30 (W2-4): キーワードに正規表現メタ文字が混入しても安全
+  test("キーワード検索: 正規表現メタ文字をリテラル扱いする", async () => {
+    await store.add(makeEntry("array[0] = value", [1, 0, 0]));
+    await store.add(makeEntry("plain text without brackets", [0, 1, 0]));
+    await store.add(makeEntry("function call: foo(bar)", [0, 0, 1]));
+
+    // "[" や "(" は正規表現の特殊文字。エスケープなしだと SyntaxError
+    // または意図しないマッチになるが、W2-4 のエスケープでリテラル扱い。
+    const r1 = store.searchByKeyword("[0]");
+    expect(r1.length).toBe(1);
+    expect(r1[0].entry.content).toContain("[0]");
+
+    const r2 = store.searchByKeyword("foo(bar)");
+    expect(r2.length).toBe(1);
+    expect(r2[0].entry.content).toContain("foo(bar)");
+  });
+
+  // Phase 30 (W2-5): destroy() で autoSaveTimer が確実に止まる
+  test("destroy() で autoSaveTimer が止まり、二重呼び出しでも安全", () => {
+    // 短い間隔で auto save するインスタンスを作って、destroy 後に
+    // タイマーが残っていないことを clearInterval が例外を投げないことで確認。
+    const instance = new VectorStore({
+      storagePath: path.join(tmpDir, "destroy-test.json"),
+      autoSaveIntervalMs: 50,
+    });
+    expect(() => instance.destroy()).not.toThrow();
+    // 二重に呼んでも落ちない
+    expect(() => instance.destroy()).not.toThrow();
+  });
+
   test("getRecent はタイムスタンプ降順で返す", async () => {
     const old = makeEntry("古いエントリ", [1, 0, 0]);
     old.metadata.timestamp = Date.now() - 10000;
@@ -162,7 +194,9 @@ describe("VectorStore", () => {
     await store.add(newer);
 
     const recent = store.getRecent(undefined, 10);
-    expect(recent[0].metadata.timestamp).toBeGreaterThan(recent[1].metadata.timestamp);
+    expect(recent[0].metadata.timestamp).toBeGreaterThan(
+      recent[1].metadata.timestamp,
+    );
   });
 
   test("タグでの検索", async () => {
@@ -218,7 +252,9 @@ describe("VectorStore", () => {
     await smallStore.initialize();
 
     for (let i = 0; i < 8; i++) {
-      await smallStore.add(makeEntry(`エントリ ${i}`, [Math.random(), Math.random()]));
+      await smallStore.add(
+        makeEntry(`エントリ ${i}`, [Math.random(), Math.random()]),
+      );
     }
 
     // maxEntries=5, evict=10% => evict 1 entry when 5th is added => max should be <= 5
@@ -239,7 +275,8 @@ describe("TFIDFEmbeddingProvider", () => {
   });
 
   test("ベクトルが正しい次元を持つ", async () => {
-    const embedding = await provider.generateEmbedding("TypeScript プログラミング");
+    const embedding =
+      await provider.generateEmbedding("TypeScript プログラミング");
     expect(embedding.length).toBe(64);
   });
 
@@ -334,7 +371,9 @@ describe("LongTermMemory", () => {
     // 語彙を構築するため複数テキストで先に保存
     await memory.store("TypeScript のバグを修正しました", { type: "task" });
     await memory.store("Python でデータ分析を行いました", { type: "task" });
-    await memory.store("React のコンポーネントを作成しました", { type: "code" });
+    await memory.store("React のコンポーネントを作成しました", {
+      type: "code",
+    });
 
     const results = await memory.search("TypeScript バグ修正");
     expect(results.length).toBeGreaterThan(0);
@@ -383,8 +422,14 @@ describe("LongTermMemory", () => {
   });
 
   test("buildContext が注入用テキストを構築する", async () => {
-    await memory.store("TypeScript の型エラーを修正した", { type: "error", tags: ["typescript"] });
-    await memory.store("React コンポーネントの最適化", { type: "code", tags: ["react"] });
+    await memory.store("TypeScript の型エラーを修正した", {
+      type: "error",
+      tags: ["typescript"],
+    });
+    await memory.store("React コンポーネントの最適化", {
+      type: "code",
+      tags: ["react"],
+    });
 
     const ctx = await memory.buildContext("TypeScript エラーを直したい");
     // エントリがある場合はコンテキストテキストが生成される
@@ -409,7 +454,10 @@ describe("LongTermMemory", () => {
   });
 
   test("getByTag でタグ検索ができる", async () => {
-    await memory.store("タグ付きエントリ1", { type: "task", tags: ["urgent", "api"] });
+    await memory.store("タグ付きエントリ1", {
+      type: "task",
+      tags: ["urgent", "api"],
+    });
     await memory.store("タグ付きエントリ2", { type: "task", tags: ["api"] });
     await memory.store("タグなしエントリ", { type: "task" });
 

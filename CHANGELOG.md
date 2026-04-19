@@ -6,6 +6,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Performance
+
+**Phase 30: パフォーマンス改善 Wave 1-3 の正式記録（2026-04-19）**
+
+2026-04-17 の非公式コミット `6abe1d0` (「パフォーマンス改善」) + `20b90fb`
+(「fix パフォーマンス改善」) で実装されていた Wave 1-3 全 10 項目を
+本 CHANGELOG に正式記録する。実装そのものは既に main に入っており、
+Phase 30 ではこの帳簿合わせと、欠落していた単体テスト 12 本の追加を行った。
+
+Wave 1（応答性に直結する 3 項目）:
+
+- **W1-1**: `LongTermMemory.generateEmbeddingSafe()` に sha256(text) ベースの
+  LRU キャッシュ（最大 2000 件）を追加。同一テキストの再 embedding を回避。
+  `getCacheStats()` で hits / misses / size / hitRate を取得可
+  (`src/memory/LongTermMemory.ts:81-84, 420-465`)
+- **W1-2**: `TestRunnerTool.detectFramework()` を `Promise.allSettled` で
+  並列 stat 化 + CWD ごとに 60 秒 TTL のフレームワーク検出キャッシュを追加
+  (`src/tools/TestRunnerTool.ts:68-70, 86`)
+- **W1-3**: `src/utils/gitRunner.ts` を新設し、`spawn` ベースの非同期 git 実行
+  ヘルパ `runGit()` と `GitCommandError` を導入。`CheckpointManager` /
+  `AutoGitWorkflow` の `execSync` 呼び出しを移行（メインスレッドブロックを解消）
+
+Wave 2（Memory / VectorStore 周辺の効率化）:
+
+- **W2-1**: `MemorySystem.searchMemory()` のトピックファイル読み込みを
+  `Promise.all` で並列化 (`src/memory/MemorySystem.ts:427-437`)
+- **W2-2**: `VectorStore.search()` の Top-K 管理を min-heap 的な置換ロジックに
+  変更し、計算量を O(n log K) に抑制 (`src/memory/VectorStore.ts:177-213`)
+- **W2-3**: `VectorStore.evict()` をインクリメンタル削除に変更
+  (`src/memory/VectorStore.ts:301-324`)
+- **W2-4**: `searchByKeyword()` で正規表現メタ文字 (`[`, `(`, `*` 等) を
+  エスケープ + 正規表現キャッシュ (`src/memory/VectorStore.ts:224-225`)
+- **W2-5**: `autoSaveTimer` に `unref()` を呼んでイベントループを引き留めない
+  ように。`destroy()` で `clearInterval` (`src/memory/VectorStore.ts:65-70, 124`)
+- **W2-6**: `MemorySystem.searchContent()` の前処理結果（`lines` /
+  `linesLower`）を mtime ベースで 60 秒キャッシュ
+  (`src/memory/MemorySystem.ts:24-27, 370-398`)
+
+Wave 3:
+
+- **W3-1**: `src/cli.ts` の重い依存をサブコマンド処理時の `await import()` に
+  移してレイジーロード化。CLI 起動時のオーバーヘッド削減
+
+### Added
+
+**Phase 30: 不足していたパフォーマンス系テスト（2026-04-19）**
+
+Wave 1-3 のうち単体テストが欠落していた箇所に追加（12 tests / `bun test`:
+745 → 757 pass）。
+
+- `tests/longterm-memory-cache.test.ts` (新規, 4 tests): W1-1 の embedding
+  LRU キャッシュの hit/miss カウンタ、`getCacheStats()` の hitRate 計算、
+  容量超過時の eviction、LRU 順序維持
+- `tests/git-runner.test.ts` (新規, 6 tests): W1-3 `runGit()` の正常系
+  (stdout 取得)・異常系 (`GitCommandError` の `exitCode` / `stderr`)・cwd
+  反映・`combineStderr` オプション・`timeoutMs` での kill
+- `tests/vector-memory.test.ts` (追補, 2 tests): W2-4 正規表現メタ文字
+  (`[0]`, `foo(bar)`) の安全なリテラル検索、W2-5 `destroy()` の二重呼び出し
+  安全性
+
 ### Changed
 
 **Phase 29: `chdirOnActivate: false` をデフォルト化（破壊的変更）（2026-04-19）**
