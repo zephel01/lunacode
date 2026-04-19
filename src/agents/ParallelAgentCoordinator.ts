@@ -183,9 +183,7 @@ export class ParallelAgentCoordinator {
     for (let w = 0; w < maxConcurrency; w++) {
       workers.push(
         (async () => {
-          while (true) {
-            const idx = nextIndex();
-            if (idx < 0) return;
+          for (let idx = nextIndex(); idx >= 0; idx = nextIndex()) {
             await runOne(idx, tasks[idx]);
           }
         })(),
