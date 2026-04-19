@@ -205,75 +205,27 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
     expect(shared.peakConcurrent).toBe(1);
   });
 
-  test("maxConcurrency=3 では少なくとも 2 件同時に走る", async () => {
+  test("maxConcurrency=3 では少なくとも 2 件の chatCompletion が同時に走る", async () => {
     const coord = new ParallelAgentCoordinator();
 
-    // バリア方式: 少なくとも 2 件の chatCompletion が同時に入るまで
-    // どの呼び出しも return しない。これにより AgentLoop.initialize() の
-    // 揺らぎに依存せず、並行度ピークを決定論的に観測できる。
+    // 実装方針:
+    //   ScriptedMockProvider を 1 つ全 task で共有し、`peakConcurrent`
+    //   (chatCompletion の同時実行数のピーク) を観測する。
+    //   (maxConcurrency=1 で peak=1 になる兄弟テストと対称的なアプローチ)
     //
-    // safety timeout は CI の遅い runner でも 2 件目が必ず届くよう 15s に設定。
-    // unref() で bun test のイベントループが hang しないようにする。
-    // このテストは CI で AgentLoop.initialize() + WorkspaceIsolator.create()
-    // が揺らぐため、bun test 既定の 5s タイムアウトでは足りない。30s に拡大する。
-    let entered = 0;
-    let current = 0;
-    let peak = 0;
-    let resolveBarrier: () => void = () => {};
-    const barrier = new Promise<void>((resolve) => {
-      resolveBarrier = resolve;
-    });
+    //   - content を 200 文字以上にして AgentLoop の retry ループを回避し、
+    //     task ごと chatCompletion が正確に 1 回だけ呼ばれるようにする。
+    //   - delayMs=2000 で「overlap window」を 2 秒に広げて、
+    //     workspace 作成や AgentLoop.initialize() のバラつきを吸収する。
+    //     CI の遅い runner でも 2 秒以内に他 task が chatCompletion へ
+    //     到達する前提。
+    const LONG_CONTENT = "Task completed successfully. " + "X".repeat(220);
+    const shared = new ScriptedMockProvider([
+      { content: LONG_CONTENT, delayMs: 2000 },
+    ]);
+    const factory = () => shared;
 
-    const makeBarrierProvider = (): ILLMProvider => ({
-      async chatCompletion(
-        _req: ChatCompletionRequest,
-      ): Promise<ChatCompletionResponse> {
-        current++;
-        peak = Math.max(peak, current);
-        entered++;
-        if (entered >= 2) resolveBarrier();
-        // 2 件入ったら barrier を解放、それまでは最大 15 秒だけ待つ
-        await new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, 15000);
-          timer.unref?.();
-          barrier.then(() => {
-            clearTimeout(timer);
-            resolve();
-          });
-        });
-        current--;
-        return {
-          id: "b",
-          object: "chat.completion",
-          created: Math.floor(Date.now() / 1000),
-          model: "mock",
-          choices: [
-            {
-              index: 0,
-              message: { role: "assistant", content: "done" },
-              finish_reason: "stop",
-            },
-          ],
-        };
-      },
-      async generateResponse(): Promise<string> {
-        return "";
-      },
-      getType(): LLMProviderType {
-        return "openai";
-      },
-      getDefaultModel(): string {
-        return "mock";
-      },
-      async initialize(): Promise<void> {},
-      async cleanup(): Promise<void> {},
-      async testConnection(): Promise<boolean> {
-        return true;
-      },
-    });
-
-    const factory = () => makeBarrierProvider();
-
+    const started = Date.now();
     const results = await coord.run(
       [
         { id: "p1", prompt: "p" },
@@ -287,19 +239,31 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
         autoMerge: false,
       },
     );
+    const elapsed = Date.now() - started;
 
-    // 失敗時の diff 出力にエラー詳細を載せるため、summary 形式で比較する
+    // 失敗時に原因を出すため、summary 形式で比較
     const summary = results.map((r) => ({
       id: r.taskId,
       status: r.status,
       err: r.error?.message,
     }));
+    // 診断情報を常に出す (CI での失敗解析用)
+    // eslint-disable-next-line no-console
+    console.error(
+      `[parallel-coord diag] peak=${shared.peakConcurrent} elapsed=${elapsed}ms durations=${JSON.stringify(
+        results.map((r) => ({
+          id: r.taskId,
+          dur: r.durationMs,
+          st: r.status,
+        })),
+      )}`,
+    );
     expect(summary).toEqual([
       { id: "p1", status: "success", err: undefined },
       { id: "p2", status: "success", err: undefined },
       { id: "p3", status: "success", err: undefined },
     ]);
-    expect(peak).toBeGreaterThanOrEqual(2);
+    expect(shared.peakConcurrent).toBeGreaterThanOrEqual(2);
   }, 30000);
 
   test("1 task が失敗しても他 task は完走する", async () => {
