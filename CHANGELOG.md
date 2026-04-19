@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+**Phase 31: マルチエージェント並列実行（2026-04-19）**
+
+Phase 29 で整えた `ToolContext.basePath` 注入と、Phase 25〜28 の
+`WorkspaceIsolator` / baseline / 衝突検知を土台に、複数の `AgentLoop` を
+独立した workspace 上で並行起動する上位 orchestrator を追加した。
+
+- **`src/agents/ParallelAgentCoordinator.ts`** (新規): `run(tasks, options)` で
+  N 個の task を並行実行する。各 task に対して個別の workspace を
+  `WorkspaceIsolator.create()` で確保し、task ごとに新規生成した
+  LLM provider を渡した `AgentLoop` を起動、完了後に (`autoMerge: true` の
+  場合) `workspace.merge({ onConflict })` で origin へ反映する。
+  `maxConcurrency` で同時実行数を制限（手書きのワーカ pool、追加依存なし）。
+  1 task の失敗は他 task に伝播しない（`Promise.allSettled` 相当）
+- **`src/agents/parallelCli.ts`** (新規): `lunacode parallel <prompt1> [prompt2 ...]`
+  の CLI handler。`--max-concurrency` / `--on-conflict` /
+  `--no-auto-merge` / `--timeout` / `--keep-on-failure` / `--dry-run` に対応
+- **`src/cli.ts`**: `program.command("parallel")` を lazy import で登録
+- **`src/agents/AgentLoop.ts`**: `externallyManagedWorkspace?: boolean` オプション
+  を追加。`ParallelAgentCoordinator` が外側で workspace を管理する場合に
+  内部の `setupSandboxWorkspace()` をスキップさせる。既存の `isSubAgent`
+  とは役割が異なる（`isSubAgent` は `delegate_task` 除外などの副作用を持つ）
+
+**追加テスト**:
+
+- `tests/parallel-coordinator.test.ts` (新規, 8 tests): 2 task の並行実行と独立
+  workspace、`maxConcurrency=1` での直列化（peak=1 検証）、`maxConcurrency>=2`
+  での並行性、1 task の失敗が他に伝播しない、`timeoutMs` 超過で
+  `status: "timeout"`、`autoMerge: true` で origin が更新される、
+  重複 task id で throw、空配列は空配列を返す
+- `tests/cli-parallel.test.ts` (新規, 15 tests): `parseParallelArgs()` の
+  全フラグ（`--max-concurrency` / `--on-conflict` / `--no-auto-merge` /
+  `--timeout` / `--keep-on-failure` / `--dry-run` / `--help`）、
+  `handleParallelCommand()` の `--help` / 0 引数エラー / 不正
+  `--on-conflict` / `--dry-run` プラン出力
+
+合計 23 tests 追加（`bun test`: 757 → 780 pass）。
+
 ### Performance
 
 **Phase 30: パフォーマンス改善 Wave 1-3 の正式記録（2026-04-19）**

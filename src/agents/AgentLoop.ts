@@ -84,6 +84,9 @@ export class AgentLoop {
   private isSubAgent: boolean = false;
   // サブエージェントで許可されたツール名リスト
   private allowedTools?: string[];
+  // Phase 31: ParallelAgentCoordinator が外側で workspace を管理している場合に true。
+  // true のときは `setupSandboxWorkspace()` を呼ばない (多重 workspace 作成を防ぐ)。
+  private externallyManagedWorkspace: boolean = false;
 
   // Sandbox Tier 1: 隔離作業ツリー (有効化された場合のみ)
   private isolatedWorkspace?: IsolatedWorkspace;
@@ -94,13 +97,21 @@ export class AgentLoop {
     llmProvider: ILLMProvider,
     basePath: string,
     configManager?: ConfigManager,
-    options?: { isSubAgent?: boolean; allowedTools?: string[] },
+    options?: {
+      isSubAgent?: boolean;
+      allowedTools?: string[];
+      /** Phase 31: 呼び出し側で workspace を作成 / 管理する場合 true。
+       *  AgentLoop は自前の `setupSandboxWorkspace()` をスキップする。 */
+      externallyManagedWorkspace?: boolean;
+    },
   ) {
     this.llmProvider = llmProvider;
     this.basePath = basePath;
     this.originPath = basePath;
     this.isSubAgent = options?.isSubAgent ?? false;
     this.allowedTools = options?.allowedTools;
+    this.externallyManagedWorkspace =
+      options?.externallyManagedWorkspace ?? false;
     this.toolRegistry = new ToolRegistry();
     // Phase 29: ツールに basePath を注入する。sandbox 有効化時は
     // setupSandboxWorkspace() で workspace.path に差し替える。
@@ -144,8 +155,10 @@ export class AgentLoop {
     // 構文チェック設定を SyntaxValidator のモジュール singleton にセット
     setValidationConfig(this.configManager.getValidationConfig());
 
-    // Sandbox Tier 1: 作業ツリー分離 (サブエージェントは親の workspace を継承するため立てない)
-    if (!this.isSubAgent) {
+    // Sandbox Tier 1: 作業ツリー分離
+    //   - サブエージェントは親の workspace を継承するためスキップ
+    //   - Phase 31: ParallelAgentCoordinator が外側で管理している場合もスキップ
+    if (!this.isSubAgent && !this.externallyManagedWorkspace) {
       await this.setupSandboxWorkspace();
     }
 

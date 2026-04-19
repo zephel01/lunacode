@@ -2211,6 +2211,40 @@ function buildProgram(): Command {
     await handleSandboxCommand({ origin: process.cwd() }, ["list"]);
   });
 
+  // ---- parallel (Phase 31: マルチエージェント並列実行) ----
+  program
+    .command("parallel")
+    .description(
+      "Run multiple AgentLoops in parallel, each in an isolated workspace",
+    )
+    .argument("<prompts...>", "Prompts to run in parallel")
+    .option("--max-concurrency <n>", "Max concurrent tasks (default: 3)", "3")
+    .option(
+      "--on-conflict <policy>",
+      "Merge conflict policy: abort | skip-conflicted | force (default: abort)",
+      "abort",
+    )
+    .option("--no-auto-merge", "Do not merge back to origin; keep workspaces")
+    .option("--timeout <ms>", "Per-task timeout in milliseconds")
+    .option("--keep-on-failure", "Keep workspace for failed or timed-out tasks")
+    .option("--dry-run", "Print parsed plan and exit without running")
+    .action(async (prompts: string[], opts: OptionValues) => {
+      const { handleParallelCommand } = await import("./agents/parallelCli.js");
+      const args: string[] = [...prompts];
+      if (opts.maxConcurrency != null) {
+        args.push("--max-concurrency", String(opts.maxConcurrency));
+      }
+      if (opts.onConflict != null) {
+        args.push("--on-conflict", String(opts.onConflict));
+      }
+      // commander の --no-auto-merge は opts.autoMerge === false を表す
+      if (opts.autoMerge === false) args.push("--no-auto-merge");
+      if (opts.timeout != null) args.push("--timeout", String(opts.timeout));
+      if (opts.keepOnFailure) args.push("--keep-on-failure");
+      if (opts.dryRun) args.push("--dry-run");
+      await handleParallelCommand({ origin: process.cwd() }, args);
+    });
+
   // ---- skill ----
   const skillCmd = program
     .command("skill")
