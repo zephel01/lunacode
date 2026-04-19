@@ -214,6 +214,8 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
     //
     // safety timeout は CI の遅い runner でも 2 件目が必ず届くよう 15s に設定。
     // unref() で bun test のイベントループが hang しないようにする。
+    // このテストは CI で AgentLoop.initialize() + WorkspaceIsolator.create()
+    // が揺らぐため、bun test 既定の 5s タイムアウトでは足りない。30s に拡大する。
     let entered = 0;
     let current = 0;
     let peak = 0;
@@ -298,7 +300,7 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
       { id: "p3", status: "success", err: undefined },
     ]);
     expect(peak).toBeGreaterThanOrEqual(2);
-  });
+  }, 30000);
 
   test("1 task が失敗しても他 task は完走する", async () => {
     const coord = new ParallelAgentCoordinator();
