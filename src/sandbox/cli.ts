@@ -18,7 +18,7 @@ import { access } from "node:fs/promises";
 import * as path from "node:path";
 
 import { WorkspaceIsolator } from "./WorkspaceIsolator.js";
-import type { IsolatedWorkspace } from "./types.js";
+import type { IsolatedWorkspace, MergeConflictPolicy } from "./types.js";
 
 const DEFAULT_BASE_PATH = ".kairos/sandbox/workspace";
 
@@ -85,7 +85,8 @@ function printHelp(): void {
 Subcommands:
   list [--json]                    List workspaces under .kairos/sandbox/workspace
   diff <taskId> [--only <paths>]   Show diff between workspace and origin
-  merge <taskId> [--apply]         Merge workspace → origin (default: dry-run)
+  merge <taskId> [--apply] [--on-conflict abort|skip-conflicted|force]
+                                   Merge workspace → origin (default: dry-run, abort on conflict)
   clean [<taskId>|--all|--older-than <days>] [--dry-run] [--yes]
                                    Delete workspaces
 
@@ -94,6 +95,7 @@ Examples:
   lunacode sandbox list --json
   lunacode sandbox diff session_abc
   lunacode sandbox merge session_abc --apply
+  lunacode sandbox merge session_abc --apply --on-conflict skip-conflicted
   lunacode sandbox clean session_abc
   lunacode sandbox clean --all --yes
   lunacode sandbox clean --older-than 7
@@ -175,13 +177,21 @@ async function runMerge(
   const taskId = args[0];
   if (!taskId || taskId.startsWith("--")) {
     console.error(
-      "Usage: lunacode sandbox merge <taskId> [--apply] [--only <paths...>]",
+      "Usage: lunacode sandbox merge <taskId> [--apply] [--on-conflict abort|skip-conflicted|force] [--only <paths...>]",
     );
     process.exitCode = 1;
     return;
   }
   const apply = args.includes("--apply");
   const onlyPaths = parseOnlyPaths(args.slice(1));
+  const onConflict = parseOnConflict(args);
+  if (onConflict === "__invalid__") {
+    console.error(
+      "Invalid --on-conflict value. Expected one of: abort, skip-conflicted, force",
+    );
+    process.exitCode = 1;
+    return;
+  }
 
   const target = path.join(resolveBasePath(opts), taskId);
   if (!(await pathExists(target))) {
@@ -191,14 +201,18 @@ async function runMerge(
   }
 
   const ws = await WorkspaceIsolator.open(target, opts.origin);
-  const result = await ws.merge({ dryRun: !apply, onlyPaths });
+  const result = await ws.merge({
+    dryRun: !apply,
+    onlyPaths,
+    onConflict,
+  });
 
   if (!apply) {
     console.log(
       `🔍 Dry-run merge preview for ${taskId} (pass --apply to actually merge)`,
     );
   } else {
-    console.log(`✅ Merged ${taskId} → origin`);
+    console.log(`✅ Merged ${taskId} → origin (onConflict=${onConflict})`);
   }
   console.log("");
   console.log(`  applied    : ${result.applied.length}`);
@@ -393,6 +407,18 @@ function parseOnlyPaths(args: string[]): string[] | undefined {
   if (idx < 0) return undefined;
   const rest = args.slice(idx + 1).filter((a) => !a.startsWith("--"));
   return rest.length > 0 ? rest : undefined;
+}
+
+/**
+ * `--on-conflict <mode>` を解析する (Phase 28)。
+ * 未指定なら `"abort"` を返す。不正値は `"__invalid__"`。
+ */
+function parseOnConflict(args: string[]): MergeConflictPolicy | "__invalid__" {
+  const idx = args.indexOf("--on-conflict");
+  if (idx < 0) return "abort";
+  const v = args[idx + 1];
+  if (v === "abort" || v === "skip-conflicted" || v === "force") return v;
+  return "__invalid__";
 }
 
 function formatSize(bytes: number): string {

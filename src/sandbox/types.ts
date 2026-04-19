@@ -102,13 +102,37 @@ export interface IsolatedWorkspace {
   diff(opts?: DiffOptions): Promise<string>;
 }
 
+/**
+ * `merge()` 時に origin 側が外部から変更されていた場合の扱い (Phase 28)。
+ *
+ * - `"abort"` (既定): 1 件でも衝突があれば何も適用せず、`conflicted` に列挙して返す。
+ * - `"skip-conflicted"`: 衝突していないファイルだけを適用し、衝突分は `skipped`
+ *   に入れる (他の merge は進む)。
+ * - `"force"`: 衝突を無視して workspace 版で上書きする (Phase 27 までの挙動)。
+ */
+export type MergeConflictPolicy = "abort" | "skip-conflicted" | "force";
+
 export interface MergeOptions {
   /** 適用せず計画だけ返す */
   dryRun?: boolean;
   /** このパスのみ対象とする (basePath からの相対) */
   onlyPaths?: string[];
+  /**
+   * origin 並行変更を検出したときの扱い (Phase 28)。
+   * 既定は `"abort"`。
+   */
+  onConflict?: MergeConflictPolicy;
 }
 
+/**
+ * `merge()` の戻り値。
+ *
+ * `conflicted` には 2 系統のエントリが入り得る:
+ *   - Phase 28 の origin 外部変更衝突: `"path: origin が外部変更されています ..."` 形式
+ *   - コピー中の I/O エラー: `"path: <error message>"` 形式
+ *
+ * 呼び出し側は差分を識別したければ `applied` / `skipped` との突合で判断する。
+ */
 export interface MergeResult {
   applied: string[];
   conflicted: string[];

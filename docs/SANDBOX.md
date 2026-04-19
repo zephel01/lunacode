@@ -239,7 +239,69 @@ await ws.cleanup();
 - **`git-worktree` + dirty index**: HEAD 以外の変更（staged/unstaged）は workspace には入りません。
   この制約は将来 `--detach` オプションなどで緩和予定。
 - **自動マージは実験的**: `autoMerge: true` は現状 origin を直接上書きするため、
-  Git の管理下でないファイルの扱いに注意してください。
+  Git の管理下でないファイルの扱いに注意してください。Phase 28 から
+  後述の「衝突検知」が既定で働くため、外部変更を無言で上書きする事故は防げますが、
+  未検出の種類（タイムスタンプを保ったままの書き換えなど）はまだ存在します。
+
+---
+
+## 8.5 衝突検知（Phase 28）
+
+Tier 1 サンドボックスは `WorkspaceIsolator.create()` 実行時に
+**origin のベースラインスナップショット**（ファイル一覧 + `{size, mtime}`）を
+`<basePath>/<taskId>.baseline.json` に保存し、`merge()` 時に現 origin と
+比較することで「サンドボックス稼働中に origin 側が外部変更されていないか」を
+検知します。
+
+### 8.5.1 衝突の種類
+
+| kind                    | 意味                                                       |
+| ----------------------- | ---------------------------------------------------------- |
+| `externally-modified`   | baseline 時点から origin 側で `size` か `mtime` が変化した |
+| `externally-deleted`    | baseline にあったファイルが今は存在しない                  |
+| `externally-added`      | baseline に無かったファイルが origin に追加されている      |
+
+### 8.5.2 `MergeOptions.onConflict`
+
+```ts
+await ws.merge({ onConflict: "abort" });            // 既定: 1 件でも衝突があれば何も適用しない
+await ws.merge({ onConflict: "skip-conflicted" });  // 衝突分だけ飛ばし、他は適用
+await ws.merge({ onConflict: "force" });            // 衝突を無視して全件上書き (Phase 27 挙動)
+```
+
+- `"abort"` が既定値。ユーザのローカル変更を無言で上書きするリスクを減らす。
+- `"skip-conflicted"` は CI のような「可能な分だけ取り込みたい」用途向け。
+  衝突ファイルは `MergeResult.skipped` と `MergeResult.conflicted` 両方に入り、
+  前者はパス、後者は `"path: 理由"` 形式のメッセージが載る。
+- `"force"` は Phase 27 までの挙動を復元したい場合に明示的に指定する。
+
+### 8.5.3 CLI
+
+```bash
+lunacode sandbox merge <taskId>                              # dry-run, abort
+lunacode sandbox merge <taskId> --apply                       # abort モードで実適用
+lunacode sandbox merge <taskId> --apply --on-conflict skip-conflicted
+lunacode sandbox merge <taskId> --apply --on-conflict force
+```
+
+### 8.5.4 実装メモ
+
+- baseline は `{size, mtime}` のみを記録します（内容ハッシュは取らない）。
+  origin の外部編集は通常 `mtime` を動かすため、size + mtime 一致は
+  「baseline 時と同じ内容」として扱って実用上問題ありません。
+- baseline は `<workspace>` の外 (`<basePath>/<taskId>.baseline.json`) に
+  置くため、diff/merge の比較対象には入りません。
+- `cleanup()` で baseline ファイルも同時に削除されます。
+- `WorkspaceIsolator.open()` で既存 workspace を再構築した場合も、
+  同じ場所から baseline を自動で拾おうとします。無ければ衝突検知は
+  自動で無効化され（`"force"` 相当の挙動）、互換性を保ちます。
+
+### 8.5.5 非ゴール
+
+- 3-way マージ (`git merge-file` 相当の自動統合)。衝突は検出までで、
+  コンテンツ統合は将来課題。
+- シンボリックリンク・デバイスファイルの衝突検知（現状は `isFile()` のみ）。
+- サブディレクトリの個別 `.gitignore` を考慮した除外（Phase 27 の方針を踏襲）。
 
 ---
 
@@ -267,7 +329,7 @@ Tier 2 / Tier 3 のスコープと導入時期は [`ROADMAP.md`](../ROADMAP.md) 
 |----------|------|
 | `lunacode sandbox list` | workspace を列挙（テーブル。`--json` で機械可読） |
 | `lunacode sandbox diff <taskId>` | workspace と origin の差分を表示（`--only <paths...>` で対象絞り込み） |
-| `lunacode sandbox merge <taskId>` | workspace → origin にマージ。**既定 dry-run**、実反映は `--apply` を付ける |
+| `lunacode sandbox merge <taskId>` | workspace → origin にマージ。**既定 dry-run**、実反映は `--apply`。Phase 28 から `--on-conflict abort\|skip-conflicted\|force` で origin 外部変更時の扱いを選べる（既定は `abort`） |
 | `lunacode sandbox clean [<taskId>]` | workspace を削除。`--all` / `--older-than <days>` / `--dry-run` / `--yes` を受け付ける |
 
 すべて `process.cwd()` を origin として解釈するので、プロジェクトルートで実行する前提。
@@ -300,6 +362,11 @@ $ lunacode sandbox merge session_abc123
   skipped    : 0
 
 $ lunacode sandbox merge session_abc123 --apply
+✅ Merged session_abc123 → origin (onConflict=abort)
+
+# 外部変更されたファイルがある場合、既定の abort だと何も適用されない。
+# 「可能な分だけ取り込み」で進めたいなら skip-conflicted:
+$ lunacode sandbox merge session_abc123 --apply --on-conflict skip-conflicted
 
 # 古いものだけ掃除
 $ lunacode sandbox clean --older-than 7 --yes
@@ -315,8 +382,10 @@ Proceed? [y/N]
 
 ### 9.5.3 注意
 
-- `merge --apply` は既存ファイルを上書きする。心配なら `--only <paths...>` で対象を
-  絞るか、先に `git commit` / `git stash` しておくこと。
+- `merge --apply` は既存ファイルを上書きする。Phase 28 から `--on-conflict abort`
+  が既定なので、origin 側に並行変更があれば自動で中止してくれるが、baseline 以降に
+  `mtime` を保ったまま書き換えられたケースは検出できない点は留意。心配なら
+  `--only <paths...>` で対象を絞るか、先に `git commit` / `git stash` しておくこと。
 - `clean` に `--dry-run` を付ければ削除候補だけ表示して実際には消さない。
 - 実装は `src/sandbox/cli.ts`。`WorkspaceIsolator.open()` 経由で diff / merge を呼ぶので、
   Phase 25 の堅牢化（mtime fast-path 削除、size 一致時も内容比較）の恩恵をそのまま受ける。

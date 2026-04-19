@@ -8,6 +8,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+**Phase 28: `autoMerge` の衝突検知（origin 並行変更の detect）（2026-04-19）**
+
+`WorkspaceIsolator.merge()` が origin 側の並行変更を検知し、ユーザのローカル変更を
+sandbox 産ファイルで無言上書きする事故を防げるようにした。
+
+- `src/sandbox/baseline.ts` を新規追加。origin のファイル一覧 + `{size, mtime}` を
+  `<basePath>/<taskId>.baseline.json` に記録する `captureBaseline()`、
+  ロード用 `loadBaseline()`、差分判定 `detectOriginConflicts()` を実装。
+  conflict 種別は `externally-modified` / `externally-deleted` / `externally-added`
+- `MergeOptions.onConflict?: "abort" | "skip-conflicted" | "force"` を追加。
+  **既定は `"abort"`**（1 件でも衝突があれば何も適用せず `conflicted` に列挙）。
+  従来の後勝ち挙動が必要な場合は `"force"` を明示する
+- `WorkspaceIsolator.create()` が baseline ファイルを自動生成し、
+  `cleanup()` が baseline も一緒に削除するよう変更
+- `lunacode sandbox merge <taskId> --on-conflict <abort|skip-conflicted|force>`
+  フラグを追加（既定 `abort`、不正値は exit code 1）
+- テスト: `tests/sandbox-phase28.test.ts` 20 pass（baseline 単体・WorkspaceIsolator
+  統合・3 つの衝突モード・dryRun CONFLICT 表示・CLI smoke）
+
+### Changed
+
+- `WorkspaceIsolator.merge()` の既定挙動が **origin 外部変更があれば中止** に
+  切り替わった。Phase 27 までと同じ「後勝ち上書き」を維持したい呼び出し元は
+  `merge({ onConflict: "force" })` を明示する必要がある
+
+### Docs
+
+- `docs/SANDBOX.md` に §8.5「衝突検知（Phase 28）」を追加（衝突種別表、
+  `onConflict` の API / CLI 使い分け、実装メモ、非ゴール）。
+  §9.5 CLI セクションの `merge` 行に `--on-conflict` を併記
+
 **Phase 27: 除外パターンの glob 化と `.gitignore` 連携（2026-04-19）**
 
 Phase 25 の残課題だった「サブディレクトリや glob で除外できない」制限を解消し、

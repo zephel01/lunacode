@@ -24,6 +24,7 @@ import * as path from "node:path";
 import type {
   DiffOptions,
   IsolatedWorkspace,
+  MergeConflictPolicy,
   MergeOptions,
   MergeResult,
   WorkspaceSandboxConfig,
@@ -38,6 +39,15 @@ import {
   runCommand,
 } from "./strategies.js";
 import { parseGitignore } from "./patternMatch.js";
+import {
+  baselinePathFor,
+  captureBaseline,
+  detectOriginConflicts,
+  formatConflict,
+  loadBaseline,
+  removeBaseline,
+  type OriginBaseline,
+} from "./baseline.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // 定数
@@ -139,12 +149,27 @@ export class WorkspaceIsolator {
       });
     }
 
+    // Phase 28: origin のベースラインスナップショットを保存。
+    // 失敗しても workspace 自体は機能するので、警告に留めて続行する。
+    const baselinePath = baselinePathFor(basePath, params.taskId);
+    try {
+      await captureBaseline({
+        origin,
+        taskId: params.taskId,
+        excludePatterns,
+        outPath: baselinePath,
+      });
+    } catch {
+      // baseline 取得失敗 → 衝突検知なしで運用。静かに無視。
+    }
+
     return new WorkspaceHandle({
       taskId: params.taskId,
       path: target,
       origin,
       strategy: strategy.name,
       strategyImpl: strategy,
+      baselinePath,
     });
   }
 
@@ -157,12 +182,19 @@ export class WorkspaceIsolator {
     if (!(await isDirectory(absTarget))) {
       throw new Error(`WorkspaceIsolator: not a directory: ${absTarget}`);
     }
+    // Phase 28: baseline は `<parentDir>/<taskId>.baseline.json` を推定。
+    // 存在しなければ衝突検知は無効で動作する。
+    const baselinePath = baselinePathFor(
+      path.dirname(absTarget),
+      path.basename(absTarget),
+    );
     return new WorkspaceHandle({
       taskId: path.basename(absTarget),
       path: absTarget,
       origin: path.resolve(origin),
       strategy: "copy",
       strategyImpl: CopyStrategy,
+      baselinePath,
     });
   }
 }
@@ -177,6 +209,8 @@ interface HandleParams {
   origin: string;
   strategy: WorkspaceStrategy;
   strategyImpl: WorkspaceStrategyImpl;
+  /** `<basePath>/<taskId>.baseline.json` の絶対パス (Phase 28) */
+  baselinePath: string;
 }
 
 class WorkspaceHandle implements IsolatedWorkspace {
@@ -185,6 +219,7 @@ class WorkspaceHandle implements IsolatedWorkspace {
   readonly origin: string;
   readonly strategy: WorkspaceStrategy;
   readonly createdAt: Date;
+  readonly baselinePath: string;
   private readonly strategyImpl: WorkspaceStrategyImpl;
   private cleaned = false;
 
@@ -194,6 +229,7 @@ class WorkspaceHandle implements IsolatedWorkspace {
     this.origin = p.origin;
     this.strategy = p.strategy;
     this.strategyImpl = p.strategyImpl;
+    this.baselinePath = p.baselinePath;
     this.createdAt = new Date();
   }
 
@@ -201,6 +237,8 @@ class WorkspaceHandle implements IsolatedWorkspace {
     if (this.cleaned) return;
     this.cleaned = true;
     await this.strategyImpl.cleanup(this);
+    // Phase 28: baseline ファイルも一緒に削除する
+    await removeBaseline(this.baselinePath);
   }
 
   async diff(opts: DiffOptions = {}): Promise<string> {
@@ -323,14 +361,19 @@ async function diffWorkspace(
  * - dryRun=true: 変更予定のパスを preview に詰めて返す
  * - 通常: rsync (あれば) か file-by-file copy で適用
  *
- * **注意**: 現状は単純な「後勝ち」適用で、本体側での同時変更との衝突検知は
- * していない。git-worktree ストラテジーでは別途 `git diff | git apply` を
- * 使う実装を将来追加する予定。
+ * Phase 28: `onConflict` (既定 `"abort"`) で origin 並行変更時の扱いを制御する。
+ *   - `"abort"`: 1 件でも衝突があれば何も適用せず `conflicted` に列挙
+ *   - `"skip-conflicted"`: 衝突分だけ `skipped` に落とし、他は適用
+ *   - `"force"`: 衝突無視で workspace 版を上書き (Phase 27 まで挙動)
+ *
+ * baseline ファイル (`<basePath>/<taskId>.baseline.json`) が存在しない場合は
+ * 衝突検知を完全にスキップして従来互換の挙動で動作する。
  */
 async function mergeWorkspace(
-  ws: IsolatedWorkspace,
+  ws: WorkspaceHandle,
   opts: MergeOptions,
 ): Promise<MergeResult> {
+  const policy: MergeConflictPolicy = opts.onConflict ?? "abort";
   const changed = await listChangedFiles(ws);
   const filtered =
     opts.onlyPaths && opts.onlyPaths.length > 0
@@ -341,23 +384,52 @@ async function mergeWorkspace(
         )
       : changed;
 
+  // Phase 28: baseline を読み、外部変更があるパスを洗い出す。
+  const baseline: OriginBaseline | null = await loadBaseline(ws.baselinePath);
+  const conflictMap = new Map<string, string>(); // rel → 整形済み理由文字列
+  if (baseline && policy !== "force" && filtered.length > 0) {
+    const conflicts = await detectOriginConflicts(baseline, filtered);
+    for (const c of conflicts) {
+      conflictMap.set(c.relPath, formatConflict(c));
+    }
+  }
+
   if (opts.dryRun) {
+    const conflictedPreview = Array.from(conflictMap.values());
+    const safeTargets = filtered.filter((p) => !conflictMap.has(p));
+    const previewLines: string[] = [];
+    for (const p of safeTargets) previewLines.push(`would apply: ${p}`);
+    for (const c of conflictMap.values()) previewLines.push(`CONFLICT: ${c}`);
     return {
       applied: [],
-      conflicted: [],
+      conflicted: conflictedPreview,
       skipped: filtered,
       preview:
-        filtered.length === 0
+        previewLines.length === 0
           ? "(no changes to merge)"
-          : filtered.map((p) => `would apply: ${p}`).join("\n"),
+          : previewLines.join("\n"),
+    };
+  }
+
+  // abort ポリシーで衝突があれば何も適用しない
+  if (policy === "abort" && conflictMap.size > 0) {
+    return {
+      applied: [],
+      conflicted: Array.from(conflictMap.values()),
+      skipped: filtered.filter((p) => !conflictMap.has(p)),
     };
   }
 
   const applied: string[] = [];
-  const conflicted: string[] = [];
+  const conflicted: string[] = Array.from(conflictMap.values());
   const skipped: string[] = [];
 
   for (const rel of filtered) {
+    // skip-conflicted: 衝突分は適用せず skipped に
+    if (policy === "skip-conflicted" && conflictMap.has(rel)) {
+      skipped.push(rel);
+      continue;
+    }
     const src = path.join(ws.path, rel);
     const dst = path.join(ws.origin, rel);
     try {
