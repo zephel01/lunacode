@@ -161,23 +161,17 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
       },
     );
 
-    // エラーがあれば原因を露出する (CI デバッグ用)
-    const failed = results.filter((r) => r.status !== "success");
-    if (failed.length > 0) {
-      console.error(
-        "[DEBUG 2-task test] failed results:",
-        failed.map((r) => ({
-          id: r.taskId,
-          status: r.status,
-          err: r.error?.message,
-        })),
-      );
-    }
+    // 失敗時の diff 出力にエラー詳細を載せるため、summary 形式で比較する
+    const summary = results.map((r) => ({
+      id: r.taskId,
+      status: r.status,
+      err: r.error?.message,
+    }));
+    expect(summary).toEqual([
+      { id: "task-a", status: "success", err: undefined },
+      { id: "task-b", status: "success", err: undefined },
+    ]);
     expect(results).toHaveLength(2);
-    expect(results[0].status).toBe("success");
-    expect(results[1].status).toBe("success");
-    expect(results[0].taskId).toBe("task-a");
-    expect(results[1].taskId).toBe("task-b");
     // 独立 workspace が割り当てられている
     expect(results[0].workspacePath).toBeTruthy();
     expect(results[1].workspacePath).toBeTruthy();
@@ -292,19 +286,17 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
       },
     );
 
-    // エラーが出たら理由を露出する (CI デバッグ用)
-    const failed = results.filter((r) => r.status !== "success");
-    if (failed.length > 0) {
-      console.error(
-        "[DEBUG concurrency test] failed results:",
-        failed.map((r) => ({
-          id: r.taskId,
-          status: r.status,
-          err: r.error?.message,
-        })),
-      );
-    }
-    expect(results.every((r) => r.status === "success")).toBe(true);
+    // 失敗時の diff 出力にエラー詳細を載せるため、summary 形式で比較する
+    const summary = results.map((r) => ({
+      id: r.taskId,
+      status: r.status,
+      err: r.error?.message,
+    }));
+    expect(summary).toEqual([
+      { id: "p1", status: "success", err: undefined },
+      { id: "p2", status: "success", err: undefined },
+      { id: "p3", status: "success", err: undefined },
+    ]);
     expect(peak).toBeGreaterThanOrEqual(2);
   });
 
