@@ -205,20 +205,29 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
     expect(shared.peakConcurrent).toBe(1);
   });
 
-  test("maxConcurrency=3 では少なくとも 2 件の chatCompletion が同時に走る", async () => {
+  test("maxConcurrency=3 では task が並行実行される (peak または elapsed で確認)", async () => {
     const coord = new ParallelAgentCoordinator();
 
     // 実装方針:
-    //   ScriptedMockProvider を 1 つ全 task で共有し、`peakConcurrent`
-    //   (chatCompletion の同時実行数のピーク) を観測する。
-    //   (maxConcurrency=1 で peak=1 になる兄弟テストと対称的なアプローチ)
+    //   ScriptedMockProvider を 1 つ全 task で共有し、以下 2 つの指標で
+    //   並行性を検証する (どちらか一方でも成立すれば OK)。
     //
-    //   - content を 200 文字以上にして AgentLoop の retry ループを回避し、
-    //     task ごと chatCompletion が正確に 1 回だけ呼ばれるようにする。
-    //   - delayMs=2000 で「overlap window」を 2 秒に広げて、
-    //     workspace 作成や AgentLoop.initialize() のバラつきを吸収する。
-    //     CI の遅い runner でも 2 秒以内に他 task が chatCompletion へ
-    //     到達する前提。
+    //     (a) `peakConcurrent >= 2`
+    //         chatCompletion の同時実行数のピーク。local では
+    //         peak=3 まで観測できる。
+    //
+    //     (b) `elapsed < SERIAL_MIN_MS`
+    //         経過時間。3 task × delayMs(2s) を順次実行すると 6s 以上
+    //         かかるため、それより明確に短ければ並行実行された証拠。
+    //
+    //   CI runner によっては task 起動 / workspace 作成の jitter で
+    //   (a) が peak=1 と観測されるケースがあるため、フォールバックとして
+    //   (b) を加える。両方とも失敗したときのみ「並行していない」と結論。
+    //
+    //   - content を 200 文字以上にして AgentLoop の isShortResponse
+    //     リトライを回避。
+    //   - delayMs=2000 で overlap window を 2 秒に広げて、
+    //     workspace 作成 / AgentLoop.initialize() のバラつきを吸収。
     const LONG_CONTENT = "Task completed successfully. " + "X".repeat(220);
     const shared = new ScriptedMockProvider([
       { content: LONG_CONTENT, delayMs: 2000 },
@@ -263,7 +272,22 @@ describe("Phase 31: ParallelAgentCoordinator", () => {
       { id: "p2", status: "success", err: undefined },
       { id: "p3", status: "success", err: undefined },
     ]);
-    expect(shared.peakConcurrent).toBeGreaterThanOrEqual(2);
+
+    // 並行性の判定: どちらか一方を満たせば OK
+    //   SERIAL_MIN_MS = 3 task × 2s(delayMs) = 6s
+    //   AgentLoop retry なしでも順次実行なら 6s 以上かかるため、
+    //   5500ms 未満なら並行実行されたと判断できる。
+    const SERIAL_MIN_MS = 3 * 2000;
+    const observedPeakOk = shared.peakConcurrent >= 2;
+    const elapsedOk = elapsed < SERIAL_MIN_MS - 500;
+    const concurrencyProven = observedPeakOk || elapsedOk;
+
+    if (!concurrencyProven) {
+      throw new Error(
+        `[parallel-coord] concurrency not proven: peak=${shared.peakConcurrent} (need >=2) AND elapsed=${elapsed}ms (need <${SERIAL_MIN_MS - 500}ms)`,
+      );
+    }
+    expect(concurrencyProven).toBe(true);
   }, 30000);
 
   test("1 task が失敗しても他 task は完走する", async () => {
