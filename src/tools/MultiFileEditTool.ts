@@ -150,7 +150,8 @@ export class MultiFileEditTool extends BaseTool {
       const contentCache = new Map<string, string>();
 
       for (const edit of edits) {
-        const absPath = pathMod.resolve(edit.path);
+        // Phase 29: 相対パスは ToolContext.basePath 基準で解決
+        const absPath = this.resolvePath(edit.path);
         if (!contentCache.has(absPath)) {
           try {
             const content = await fs.readFile(absPath, "utf-8");
@@ -174,7 +175,8 @@ export class MultiFileEditTool extends BaseTool {
       // ── Phase 2: 全編集を検証（メモリ上で適用） ──────────
       for (let i = 0; i < edits.length; i++) {
         const edit = edits[i];
-        const absPath = pathMod.resolve(edit.path);
+        // Phase 29: 相対パスは ToolContext.basePath 基準で解決
+        const absPath = this.resolvePath(edit.path);
         let content = contentCache.get(absPath) ?? "";
 
         if (edit.oldString !== undefined) {

@@ -1,4 +1,4 @@
-import { Tool } from "../types/index.js";
+import { Tool, ToolContext } from "../types/index.js";
 import {
   BashTool,
   FileReadTool,
@@ -20,6 +20,11 @@ import { TestRunnerTool } from "./TestRunnerTool.js";
 
 export class ToolRegistry {
   private tools: Map<string, Tool>;
+  /**
+   * Phase 29: 現在の実行コンテキスト。
+   * `setContext()` で更新すると、以降登録される tool にも自動で伝播する。
+   */
+  private context?: ToolContext;
 
   constructor() {
     this.tools = new Map();
@@ -50,7 +55,29 @@ export class ToolRegistry {
   }
 
   register(tool: Tool): void {
+    // Phase 29: 既に setContext 済みなら新規ツールにも伝播
+    if (this.context && typeof tool.setContext === "function") {
+      tool.setContext(this.context);
+    }
     this.tools.set(tool.name, tool);
+  }
+
+  /**
+   * Phase 29: 全ツールに実行コンテキストを設定する。
+   * sandbox 有効時に workspace 切り替えのタイミングで呼ぶ。
+   */
+  setContext(ctx: ToolContext): void {
+    this.context = ctx;
+    for (const tool of this.tools.values()) {
+      if (typeof tool.setContext === "function") {
+        tool.setContext(ctx);
+      }
+    }
+  }
+
+  /** 現在のコンテキストを取得 (Phase 29) */
+  getContext(): ToolContext | undefined {
+    return this.context;
   }
 
   get(name: string): Tool | undefined {

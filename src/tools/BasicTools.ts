@@ -139,7 +139,9 @@ export class FileReadTool extends BaseTool {
       };
 
       const fs = await import("fs/promises");
-      const content = await fs.readFile(path, "utf-8");
+      // Phase 29: 相対パスは ToolContext.basePath 基準で解決する
+      const absPath = this.resolvePath(path);
+      const content = await fs.readFile(absPath, "utf-8");
       const lines = content.split("\n");
 
       const start = Math.max(0, offset - 1);
@@ -202,30 +204,32 @@ export class FileWriteTool extends BaseTool {
       };
 
       const fs = await import("fs/promises");
+      // Phase 29: 相対パスは ToolContext.basePath 基準で解決
+      const absPath = this.resolvePath(path);
       if (append) {
-        await fs.appendFile(path, content, "utf-8");
-        const stat = await fs.stat(path);
+        await fs.appendFile(absPath, content, "utf-8");
+        const stat = await fs.stat(absPath);
         // append 時は書き込み後のファイル全体を読み直して検証する
         let fullContent = "";
         try {
-          fullContent = await fs.readFile(path, "utf-8");
+          fullContent = await fs.readFile(absPath, "utf-8");
         } catch {
           fullContent = content;
         }
-        const validation = await validateSyntax(path, fullContent);
+        const validation = await validateSyntax(absPath, fullContent);
         const warning = formatValidationWarning(validation);
         return {
           success: true,
-          output: `Successfully appended to ${path} [verified: ${stat.size} bytes on disk]${warning}`,
+          output: `Successfully appended to ${absPath} [verified: ${stat.size} bytes on disk]${warning}`,
         };
       } else {
-        await fs.writeFile(path, content, "utf-8");
-        const stat = await fs.stat(path);
-        const validation = await validateSyntax(path, content);
+        await fs.writeFile(absPath, content, "utf-8");
+        const stat = await fs.stat(absPath);
+        const validation = await validateSyntax(absPath, content);
         const warning = formatValidationWarning(validation);
         return {
           success: true,
-          output: `Successfully wrote ${path} [verified: ${stat.size} bytes on disk]${warning}`,
+          output: `Successfully wrote ${absPath} [verified: ${stat.size} bytes on disk]${warning}`,
         };
       }
     } catch (error) {
@@ -283,7 +287,9 @@ export class FileEditTool extends BaseTool {
       };
 
       const fs = await import("fs/promises");
-      let content = await fs.readFile(path, "utf-8");
+      // Phase 29: 相対パスは ToolContext.basePath 基準で解決
+      const absPath = this.resolvePath(path);
+      let content = await fs.readFile(absPath, "utf-8");
 
       if (replaceAll) {
         content = content.replaceAll(oldString, newString);
@@ -298,15 +304,15 @@ export class FileEditTool extends BaseTool {
         content = content.replace(oldString, newString);
       }
 
-      await fs.writeFile(path, content, "utf-8");
-      const stat = await fs.stat(path);
+      await fs.writeFile(absPath, content, "utf-8");
+      const stat = await fs.stat(absPath);
 
-      const validation = await validateSyntax(path, content);
+      const validation = await validateSyntax(absPath, content);
       const warning = formatValidationWarning(validation);
 
       return {
         success: true,
-        output: `Successfully edited ${path} [verified: ${stat.size} bytes on disk]${warning}`,
+        output: `Successfully edited ${absPath} [verified: ${stat.size} bytes on disk]${warning}`,
       };
     } catch (error) {
       return {
@@ -342,14 +348,17 @@ export class GlobTool extends BaseTool {
     try {
       this.validateParams(params, ["pattern"]);
 
-      const { pattern, path = process.cwd() } = params as {
+      const { pattern, path } = params as {
         pattern: string;
         path?: string;
       };
 
+      // Phase 29: path が省略された場合は ToolContext.basePath を既定にする
+      const searchPath = path ? this.resolvePath(path) : this.resolveBasePath();
+
       const fg = await import("fast-glob");
       const files = await fg.glob(pattern, {
-        cwd: path,
+        cwd: searchPath,
         absolute: true,
         onlyFiles: true,
       });
@@ -396,20 +405,19 @@ export class GrepTool extends BaseTool {
     try {
       this.validateParams(params, ["pattern"]);
 
-      const {
-        pattern,
-        path = process.cwd(),
-        include,
-      } = params as {
+      const { pattern, path, include } = params as {
         pattern: string;
         path?: string;
         include?: string;
       };
 
+      // Phase 29: path が省略された場合は ToolContext.basePath を既定にする
+      const searchPath = path ? this.resolvePath(path) : this.resolveBasePath();
+
       // シェルインジェクション対策: 引数配列方式で実行
       const args = [
         pattern,
-        path,
+        searchPath,
         "--no-heading",
         "--line-number",
         "--color",

@@ -17,14 +17,22 @@ LunaCode は LLM が生成したコードを **ユーザのローカルマシン
 サンドボックスを有効にすると、`AgentLoop.initialize()` の中で以下が自動で行われます:
 
 1. `.kairos/sandbox/workspace/<taskId>/` にプロジェクトの隔離コピーを作成
-2. プロセスの作業ディレクトリ (`process.cwd()`) をそのコピー先に切り替え
-   （`workspace.chdirOnActivate: false` なら chdir を省略し、`AgentLoop.basePath`
-   経由で伝播。Phase 25 で追加）
+2. `ToolRegistry.setContext({ basePath: workspace.path })` で全ツールに workspace
+   パスを注入（Phase 29）。`process.chdir()` は **既定では呼ばない**。
 3. 以降の `write_file` / `edit_file` / `bash` などは全て workspace 内で完結
+   （相対パスは `ToolContext.basePath` 基準で解決され、`bash` は `cwd` 引数として
+   workspace を子プロセスへ渡す）
 4. タスク終了時、変更を `diff()` で確認し、必要なら `merge()` で本体へ反映
 
 これにより、エージェントが何をしても **origin（本体プロジェクト）側のファイルは
 一切変更されません**。
+
+> **Phase 29 の挙動変更**: Phase 25–28 までは workspace 作成と同時に
+> `process.chdir(workspace.path)` を呼んでいたが、これがプロセス全体の cwd を変える
+> 副作用（並列タスク・テスト・ログ収集への影響）を持つため、Phase 29 で既定を
+> `chdirOnActivate: false` に反転した。代わりに `ToolRegistry.setContext()` を介して
+> ツール側へ basePath を直接注入する。互換性が必要なら `chdirOnActivate: true` を
+> 明示する（§6 参照）。
 
 ---
 
@@ -101,18 +109,18 @@ __pycache__
 パターンは `.gitignore` とほぼ同じセマンティクスで評価されます（実装は
 `src/sandbox/patternMatch.ts`）。
 
-| 記法              | 意味                                                                 |
-| ----------------- | -------------------------------------------------------------------- |
-| `foo`             | 任意深さの `foo` (basename 一致)                                     |
-| `/foo`            | origin 直下の `foo` のみ (anchored)                                  |
-| `foo/`            | ディレクトリ `foo` のみマッチ (末尾 `/` で dirOnly)                  |
-| `*.log`           | `/` を跨がない任意文字列 + `.log`                                    |
-| `?`               | `/` 以外の 1 文字                                                    |
-| `**`              | 任意深さ (globstar)                                                  |
-| `**/foo.txt`      | 任意ディレクトリ直下の `foo.txt`                                     |
-| `dist/**`         | `dist/` サブツリー全体                                               |
-| `a/**/z`          | `a/z`、`a/b/z`、`a/b/c/z` …                                          |
-| `!keep.log`       | 先行パターンが除外したエントリを復活させる（gitignore 互換）         |
+| 記法         | 意味                                                         |
+| ------------ | ------------------------------------------------------------ |
+| `foo`        | 任意深さの `foo` (basename 一致)                             |
+| `/foo`       | origin 直下の `foo` のみ (anchored)                          |
+| `foo/`       | ディレクトリ `foo` のみマッチ (末尾 `/` で dirOnly)          |
+| `*.log`      | `/` を跨がない任意文字列 + `.log`                            |
+| `?`          | `/` 以外の 1 文字                                            |
+| `**`         | 任意深さ (globstar)                                          |
+| `**/foo.txt` | 任意ディレクトリ直下の `foo.txt`                             |
+| `dist/**`    | `dist/` サブツリー全体                                       |
+| `a/**/z`     | `a/z`、`a/b/z`、`a/b/c/z` …                                  |
+| `!keep.log`  | 先行パターンが除外したエントリを復活させる（gitignore 互換） |
 
 > **非対応**: 文字クラス `[abc]` / 否定クラス `[^a]` / brace expansion `{a,b}` は
 > サポートしません。必要なら明示的に展開してください。
@@ -152,13 +160,13 @@ __pycache__
 
 ## 5. ライフサイクル
 
-| イベント                    | 挙動                                                               |
-| --------------------------- | ------------------------------------------------------------------ |
-| `initialize()`              | `WorkspaceIsolator.create()` で隔離コピーを作成、`process.chdir()` |
-| ツール実行中                | すべて workspace 内で完結                                          |
-| タスク成功                  | `merge({ dryRun: true })` で差分を提示（自動マージは既定 OFF）     |
-| タスク失敗                  | `keepOnFailure: true`（既定）なら workspace を保持してデバッグ可能 |
-| `disposeSandboxWorkspace()` | 必要に応じて merge → cleanup                                       |
+| イベント                    | 挙動                                                                                                                                                                                                |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `initialize()`              | `WorkspaceIsolator.create()` で隔離コピーを作成、`ToolRegistry.setContext({ basePath: workspace.path })` を呼ぶ。`chdirOnActivate: true` の場合のみ `process.chdir()` も併走（Phase 29 で既定 off） |
+| ツール実行中                | すべて workspace 内で完結（相対パスは `ToolContext.basePath` 基準）                                                                                                                                 |
+| タスク成功                  | `merge({ dryRun: true })` で差分を提示（自動マージは既定 OFF）                                                                                                                                      |
+| タスク失敗                  | `keepOnFailure: true`（既定）なら workspace を保持してデバッグ可能                                                                                                                                  |
+| `disposeSandboxWorkspace()` | 必要に応じて merge → cleanup、ツールの `basePath` を origin に巻き戻す                                                                                                                              |
 
 明示的に別の taskId を使う、あるいは `keepOnFailure: false` にすると、失敗時に
 即座に workspace が消えます。
@@ -179,23 +187,23 @@ __pycache__
       "keepOnFailure": true,
       "excludePatterns": ["target"],
       "respectGitignore": true,
-      "chdirOnActivate": true
+      "chdirOnActivate": false
     }
   }
 }
 ```
 
-| フィールド                    | 型                           | 既定                        | 説明                                                                                 |
-| ----------------------------- | ---------------------------- | --------------------------- | ------------------------------------------------------------------------------------ |
-| `tier`                        | `"none"` \| `"workspace"` 等 | `"none"`                    | `"workspace"` で Tier 1 を有効化                                                     |
-| `workspace.enabled`           | boolean                      | `tier` による               | `tier` の代わりにこれでも有効化できる                                                |
-| `workspace.strategy`          | `"auto"` \| 各ストラテジー名 | `"auto"`                    | 使用する隔離方式                                                                     |
-| `workspace.basePath`          | string                       | `.kairos/sandbox/workspace` | workspace 作成先（origin 相対 or 絶対）                                              |
-| `workspace.autoMerge`         | boolean                      | `false`                     | 成功時に自動で本体に書き戻す（現状は要注意）                                         |
-| `workspace.keepOnFailure`     | boolean                      | `true`                      | 失敗時に workspace を残してデバッグ可能にする                                        |
-| `workspace.excludePatterns`   | string[]                     | 上記既定                    | gitignore 互換 glob パターン。ユーザ指定は `.gitignore` / 既定に「追加」される       |
-| `workspace.respectGitignore`  | boolean                      | `true`                      | `origin/.gitignore` を自動で取り込むか（Phase 27 追加）                              |
-| `workspace.chdirOnActivate`   | boolean                      | `true`                      | workspace 作成時に `process.chdir()` を呼ぶか。`false` なら cwd を変えず basePath 伝播 |
+| フィールド                   | 型                           | 既定                        | 説明                                                                                                                                                    |
+| ---------------------------- | ---------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tier`                       | `"none"` \| `"workspace"` 等 | `"none"`                    | `"workspace"` で Tier 1 を有効化                                                                                                                        |
+| `workspace.enabled`          | boolean                      | `tier` による               | `tier` の代わりにこれでも有効化できる                                                                                                                   |
+| `workspace.strategy`         | `"auto"` \| 各ストラテジー名 | `"auto"`                    | 使用する隔離方式                                                                                                                                        |
+| `workspace.basePath`         | string                       | `.kairos/sandbox/workspace` | workspace 作成先（origin 相対 or 絶対）                                                                                                                 |
+| `workspace.autoMerge`        | boolean                      | `false`                     | 成功時に自動で本体に書き戻す（現状は要注意）                                                                                                            |
+| `workspace.keepOnFailure`    | boolean                      | `true`                      | 失敗時に workspace を残してデバッグ可能にする                                                                                                           |
+| `workspace.excludePatterns`  | string[]                     | 上記既定                    | gitignore 互換 glob パターン。ユーザ指定は `.gitignore` / 既定に「追加」される                                                                          |
+| `workspace.respectGitignore` | boolean                      | `true`                      | `origin/.gitignore` を自動で取り込むか（Phase 27 追加）                                                                                                 |
+| `workspace.chdirOnActivate`  | boolean                      | `false`                     | workspace 作成時に `process.chdir()` を呼ぶか。**Phase 29 から既定 `false`（破壊的変更）**。`true` に戻すと Phase 25–28 までの cwd 変更挙動を復元できる |
 
 ---
 
@@ -255,18 +263,18 @@ Tier 1 サンドボックスは `WorkspaceIsolator.create()` 実行時に
 
 ### 8.5.1 衝突の種類
 
-| kind                    | 意味                                                       |
-| ----------------------- | ---------------------------------------------------------- |
-| `externally-modified`   | baseline 時点から origin 側で `size` か `mtime` が変化した |
-| `externally-deleted`    | baseline にあったファイルが今は存在しない                  |
-| `externally-added`      | baseline に無かったファイルが origin に追加されている      |
+| kind                  | 意味                                                       |
+| --------------------- | ---------------------------------------------------------- |
+| `externally-modified` | baseline 時点から origin 側で `size` か `mtime` が変化した |
+| `externally-deleted`  | baseline にあったファイルが今は存在しない                  |
+| `externally-added`    | baseline に無かったファイルが origin に追加されている      |
 
 ### 8.5.2 `MergeOptions.onConflict`
 
 ```ts
-await ws.merge({ onConflict: "abort" });            // 既定: 1 件でも衝突があれば何も適用しない
-await ws.merge({ onConflict: "skip-conflicted" });  // 衝突分だけ飛ばし、他は適用
-await ws.merge({ onConflict: "force" });            // 衝突を無視して全件上書き (Phase 27 挙動)
+await ws.merge({ onConflict: "abort" }); // 既定: 1 件でも衝突があれば何も適用しない
+await ws.merge({ onConflict: "skip-conflicted" }); // 衝突分だけ飛ばし、他は適用
+await ws.merge({ onConflict: "force" }); // 衝突を無視して全件上書き (Phase 27 挙動)
 ```
 
 - `"abort"` が既定値。ユーザのローカル変更を無言で上書きするリスクを減らす。
@@ -305,6 +313,68 @@ lunacode sandbox merge <taskId> --apply --on-conflict force
 
 ---
 
+## 8.6 ToolContext 注入（Phase 29）
+
+Phase 29 から、ツールが「どのディレクトリを基準に動くか」は `ToolContext.basePath`
+というオブジェクト経由で **明示的に注入** される。Phase 25〜28 で実体だった
+`process.chdir(workspace.path)` への依存を解消するための変更。
+
+### 8.6.1 注入ポイント
+
+```ts
+// AgentLoop が workspace を作るときに自動で呼ばれる
+this.toolRegistry.setContext({ basePath: workspace.path });
+
+// 後始末でも origin に巻き戻す
+this.toolRegistry.setContext({ basePath: this.originPath });
+```
+
+`ToolRegistry.setContext()` は登録済みの全ツールに対して `tool.setContext(ctx)` を
+呼ぶ。`setContext` は `Tool` インタフェースで **オプション** にしてあるので、未対応の
+カスタムツールがあっても登録は失敗しない（その場合は `process.cwd()` フォールバックで
+動く）。`setContext` の後で新しく `register()` されたツールにも自動で同じコンテキストが
+配られる。
+
+### 8.6.2 ツール側の解決規則
+
+`BaseTool` には次のヘルパが用意されている。
+
+```ts
+protected resolveBasePath(): string {
+  return this.context?.basePath ?? process.cwd();
+}
+
+protected resolvePath(p: string): string {
+  return isAbsolute(p) ? p : resolve(this.resolveBasePath(), p);
+}
+```
+
+- 絶対パスはそのまま素通し（既存コードや `lunacode sandbox` CLI 等が壊れない）
+- 相対パスは `basePath` を基準に `resolve` する
+- コンテキスト未設定なら `process.cwd()` にフォールバックするので、サンドボックス
+  無効環境・単発のテスト・直接 import で使うケースでも従来通り動く
+
+`bash` ツールは `spawn(cmd, { cwd: this.resolveBasePath() })` で子プロセスへ cwd を
+渡すため、`process.cwd()` を経由しなくても workspace の中で実行される。
+
+### 8.6.3 影響を受けるツール
+
+`read_file` / `write_file` / `edit_file` / `multi_file_edit` / `glob` / `grep` /
+`bash` / `test` の 8 種類が Phase 29 で `ToolContext.basePath` を尊重するよう更新
+された。これらは絶対パスなら従来通り動き、相対パスは workspace を起点に解釈する。
+
+### 8.6.4 互換性メモ
+
+- `chdirOnActivate: true` を明示すれば `process.chdir(workspace.path)` も併走する
+  ため、Phase 25–28 と同じ「プロセス全体の cwd も workspace」挙動に戻せる。
+- 外部 CLI（`lunacode` 経由ではないワンオフ）が `process.cwd()` を前提にしている
+  場合は `chdirOnActivate: true` の方が都合が良いことがある。
+- `AgentLoop` のシステムプロンプトは Phase 29 から `process.cwd()` ではなく
+  `this.basePath` を LLM に渡すので、`chdirOnActivate: false` のままでも LLM 視点の
+  cwd は workspace に揃う。
+
+---
+
 ## 9. Tier 2 / Tier 3（将来）
 
 Tier 1 は "作業ツリーが独立" なだけで、ネットワーク・ファイル外アクセス・シグナルは
@@ -325,12 +395,12 @@ Tier 2 / Tier 3 のスコープと導入時期は [`ROADMAP.md`](../ROADMAP.md) 
 
 ### 9.5.1 コマンド一覧
 
-| コマンド | 役割 |
-|----------|------|
-| `lunacode sandbox list` | workspace を列挙（テーブル。`--json` で機械可読） |
-| `lunacode sandbox diff <taskId>` | workspace と origin の差分を表示（`--only <paths...>` で対象絞り込み） |
-| `lunacode sandbox merge <taskId>` | workspace → origin にマージ。**既定 dry-run**、実反映は `--apply`。Phase 28 から `--on-conflict abort\|skip-conflicted\|force` で origin 外部変更時の扱いを選べる（既定は `abort`） |
-| `lunacode sandbox clean [<taskId>]` | workspace を削除。`--all` / `--older-than <days>` / `--dry-run` / `--yes` を受け付ける |
+| コマンド                            | 役割                                                                                                                                                                                |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lunacode sandbox list`             | workspace を列挙（テーブル。`--json` で機械可読）                                                                                                                                   |
+| `lunacode sandbox diff <taskId>`    | workspace と origin の差分を表示（`--only <paths...>` で対象絞り込み）                                                                                                              |
+| `lunacode sandbox merge <taskId>`   | workspace → origin にマージ。**既定 dry-run**、実反映は `--apply`。Phase 28 から `--on-conflict abort\|skip-conflicted\|force` で origin 外部変更時の扱いを選べる（既定は `abort`） |
+| `lunacode sandbox clean [<taskId>]` | workspace を削除。`--all` / `--older-than <days>` / `--dry-run` / `--yes` を受け付ける                                                                                              |
 
 すべて `process.cwd()` を origin として解釈するので、プロジェクトルートで実行する前提。
 

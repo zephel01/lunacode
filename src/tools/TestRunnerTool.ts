@@ -21,7 +21,7 @@ import { ToolResult } from "../types/index.js";
 import { spawn } from "child_process";
 import { promises as fsp } from "fs";
 import { existsSync, readFileSync } from "fs"; // Makefile 同期読み込みは当面残す
-import { join, resolve } from "path";
+import { join } from "path";
 
 // ──────────────────────────────────────────────
 // 型定義
@@ -701,7 +701,9 @@ export class TestRunnerTool extends BaseTool {
       };
 
       // ── 入力検証 ───────────────────────────────────────
-      const cwd = resolve(cwdRaw ?? process.cwd());
+      // Phase 29: cwd 省略時は ToolContext.basePath（無ければ process.cwd()）を
+      // 既定にする。相対パスは basePath 基準で resolve する。
+      const cwd = cwdRaw ? this.resolvePath(cwdRaw) : this.resolveBasePath();
 
       if (!existsSync(cwd)) {
         return {

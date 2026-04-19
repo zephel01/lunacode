@@ -102,6 +102,9 @@ export class AgentLoop {
     this.isSubAgent = options?.isSubAgent ?? false;
     this.allowedTools = options?.allowedTools;
     this.toolRegistry = new ToolRegistry();
+    // Phase 29: ツールに basePath を注入する。sandbox 有効化時は
+    // setupSandboxWorkspace() で workspace.path に差し替える。
+    this.toolRegistry.setContext({ basePath });
     this.memorySystem = new MemorySystem(basePath);
     this.configManager = configManager || new ConfigManager(basePath);
     this.skillLoader = new SkillLoader(basePath);
@@ -519,13 +522,10 @@ export class AgentLoop {
     if (isNoToolsMode) {
       // CWD をピン留めして、モデルが相対パスの解釈でブレないようにする
       // （Claude Code + Ollama の運用ノウハウ由来）
-      const cwd = (() => {
-        try {
-          return process.cwd();
-        } catch {
-          return "(unknown)";
-        }
-      })();
+      // Phase 29: `chdirOnActivate: false` を既定にしたため、
+      // `process.cwd()` は origin のままでも basePath は workspace を指す。
+      // LLM 視点の相対パス基準を揃えるため、basePath を優先する。
+      const cwd = this.basePath;
 
       const noToolsSystemMessage = `You are LunaCode running in whole-format output mode.
 
@@ -1613,10 +1613,13 @@ Do NOT explain. Emit the file contents now.`;
       this.isolatedWorkspace = workspace;
       this.basePath = workspace.path;
 
-      // Phase 25: chdir は設定で切り替え可能にした。既定は従来通り true だが、
-      // false にするとプロセス全体の cwd を変えずに workspace.path を
-      // `this.basePath` 経由でツールに渡す形になる (ツール側の対応が必要)。
-      const shouldChdir = cfg.workspace?.chdirOnActivate ?? true;
+      // Phase 29: ToolRegistry にも workspace パスを注入
+      // （相対パス解決・子プロセスの cwd に反映）
+      this.toolRegistry.setContext({ basePath: workspace.path });
+
+      // Phase 29: chdir 既定を `false` に反転。これまでの `true` 挙動が
+      // 必要なユーザは `.kairos/config.json` で明示する。
+      const shouldChdir = cfg.workspace?.chdirOnActivate ?? false;
       if (shouldChdir) {
         // サブモジュール (MemorySystem, SkillLoader 等) は既に originPath で初期化済みなので、
         // ここで chdir するとツール側 (BashTool / FileWriteTool) の相対パス解決が
@@ -1673,6 +1676,8 @@ Do NOT explain. Emit the file contents now.`;
     } finally {
       this.isolatedWorkspace = undefined;
       this.basePath = this.originPath;
+      // Phase 29: ToolRegistry コンテキストも origin に戻す
+      this.toolRegistry.setContext({ basePath: this.originPath });
       try {
         process.chdir(this.originPath);
       } catch {

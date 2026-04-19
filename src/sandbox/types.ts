@@ -48,12 +48,19 @@ export interface WorkspaceSandboxConfig {
   respectGitignore?: boolean;
   /**
    * workspace 作成時にプロセス全体の `process.chdir(workspace.path)` を呼ぶか。
-   * 既定 `true` (後方互換)。
    *
-   * `true` にするとツールの相対パス解決が workspace 基点になるが、
-   * プロセス全体の cwd が変わるため、logger / 並列タスク / テスト環境に
-   * 副作用を及ぼす。Phase 26 以降で `false` を既定にし、ツール側に
-   * `basePath` を注入する形に移行予定。
+   * **既定: `false`** (Phase 29 から反転)。
+   *
+   * Phase 29 では ToolRegistry が `setContext({ basePath })` を介して
+   * 全ツールに `basePath` を直接注入するため、`chdir` 無しでも
+   * ツールの相対パス解決・子プロセス `cwd` は workspace を指す。
+   *
+   * `true` にすると Phase 25〜28 までの「`process.chdir(workspace.path)`
+   * を呼ぶ」従来挙動を復元する。プロセス全体の cwd を変えるため、
+   * 並列タスク・テスト環境・ログ収集に副作用を及ぼすので注意。
+   *
+   * 外部 CLI ツールが `process.cwd()` を前提にしている場合（`lunacode`
+   * 外のワンオフコマンド等）は `true` に倒す方が都合が良いことがある。
    */
   chdirOnActivate?: boolean;
 }

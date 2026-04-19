@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+**Phase 29: `chdirOnActivate: false` をデフォルト化（破壊的変更）（2026-04-19）**
+
+Phase 25 で導入したオプションフラグ `workspace.chdirOnActivate` の既定値を
+**`true` → `false`** に反転した。これに合わせて、ツール側の相対パス解決経路を
+`process.cwd()` から `ToolContext.basePath` に切り替えた。
+
+- **BREAKING**: `WorkspaceSandboxConfig.chdirOnActivate` の既定値が `false` に
+  なった。Phase 25–28 と同じ「workspace 作成と同時に `process.chdir(workspace.path)`
+  も呼ぶ」挙動が必要な場合は、`.kairos/config.json` で
+  `sandbox.workspace.chdirOnActivate: true` を明示する
+- `AgentLoop` のシステムプロンプトが LLM に渡す cwd を `process.cwd()` ではなく
+  `this.basePath` に変更。`chdirOnActivate: false` でも LLM 視点の cwd は
+  workspace に揃うようになった
+
+### Added
+
+**Phase 29: `ToolContext` 注入機構（2026-04-19）**
+
+ツールが「どのディレクトリを基準に動くか」を `ToolRegistry.setContext()` 経由で
+明示的に注入できるようにした。`process.chdir()` というプロセス全体の副作用に
+依存せずに workspace 切り替えが完結する。
+
+- `src/types/index.ts` に `ToolContext { basePath: string }` を追加。
+  `Tool` インタフェースに `setContext?(ctx: ToolContext): void` を任意メソッドとして
+  追加（既存実装は壊さない）
+- `src/tools/BaseTool.ts` に `setContext()` / `resolveBasePath()` /
+  `resolvePath()` ヘルパを追加。`runCommand()` / `runCommandSafe()` も `cwd`
+  引数を受け取り、未指定なら `resolveBasePath()` を `spawn` の cwd に渡す
+- `BasicTools.ts` の `read_file` / `write_file` / `edit_file` / `glob` / `grep`、
+  `MultiFileEditTool` / `TestRunnerTool` / `BashTool` を `resolvePath()` /
+  `resolveBasePath()` 経由に書き換え。絶対パスは素通し、相対パスは
+  `ToolContext.basePath` を起点に解決する
+- `ToolRegistry.setContext(ctx)` / `getContext()` を追加。`setContext()` は登録済み
+  全ツールに伝播し、後続 `register()` にも自動でコンテキストが渡る
+- `AgentLoop` がコンストラクタで `basePath`、`setupSandboxWorkspace()` で
+  `workspace.path`、`disposeSandboxWorkspace()` で `originPath` をそれぞれ
+  `ToolRegistry.setContext()` に流すよう変更
+- テスト: `tests/sandbox-phase29.test.ts` 14 pass（BaseTool / ToolContext 経路、
+  ToolRegistry.setContext() 伝播、WorkspaceIsolator + Tool 結合テスト）
+
 ### Added
 
 **Phase 28: `autoMerge` の衝突検知（origin 並行変更の detect）（2026-04-19）**

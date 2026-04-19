@@ -16,6 +16,23 @@ export interface ToolCall {
   };
 }
 
+/**
+ * ツール実行時のコンテキスト (Phase 29)。
+ *
+ * `ToolRegistry.setContext()` 経由で全ツールに配布され、
+ * 相対パス解決と子プロセス起動の `cwd` に利用される。
+ *
+ * 未設定時は各ツールが `process.cwd()` へフォールバックするため、
+ * sandbox 無効時・CLI 直接呼び出し時の挙動は従来と同じ。
+ */
+export interface ToolContext {
+  /**
+   * 相対パスの基準ディレクトリ。通常は `AgentLoop.basePath`
+   * （sandbox 有効なら workspace の絶対パス、無効なら origin）。
+   */
+  basePath: string;
+}
+
 // ツールの定義
 export interface Tool {
   name: string;
@@ -27,6 +44,12 @@ export interface Tool {
   };
   execute: (params: unknown) => Promise<ToolResult>;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  /**
+   * コンテキストを受け取るツールは実装する (Phase 29)。
+   * 実装しないツール（未改修のカスタム tool 等）は従来通り
+   * `process.cwd()` で動作する。
+   */
+  setContext?(ctx: ToolContext): void;
 }
 
 // ツールの実行結果
