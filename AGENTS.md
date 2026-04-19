@@ -12,7 +12,7 @@ This guide helps agents work effectively in the LunaCode codebase - an autonomou
 
 ```bash
 # Development & Testing
-bun test                    # Run all 315 tests
+bun test                    # Run all 780 tests (3 todo, 0 fail)
 bun test --watch            # Watch mode for tests
 bun run src/cli.ts          # Run in dev mode (also: bun dev / bun start)
 
@@ -93,23 +93,27 @@ src/
 ## Code Patterns & Conventions
 
 ### Import Style
+
 - **Always use `.js` extension** for imports (TypeScript moduleResolution: "bundler")
 - Use ES modules with `import`/`export` (no CommonJS)
 - Example: `import { ToolRegistry } from "../tools/ToolRegistry.js";`
 
 ### TypeScript Configuration
+
 - **Target**: ES2022 with strict mode enabled
 - **Module**: ESNext
 - Use interfaces for public contracts, types for internal use
 - Prefer `async/await` over Promise chains
 
 ### Class Architecture
+
 - Classes use clear separation of concerns
 - Dependency injection via constructor (e.g., `AgentLoop(llmProvider, basePath, configManager)`)
 - Private fields with `private` modifier
 - Use `initialize()` async method for async setup
 
 ### ReAct Pattern (AgentLoop)
+
 ```typescript
 while (iteration < maxIterations) {
   // 1. Request LLM
@@ -119,7 +123,10 @@ while (iteration < maxIterations) {
   if (completion.tool_calls && completion.tool_calls.length > 0) {
     // 3. Execute tools
     for (const toolCall of completion.tool_calls) {
-      const result = await toolRegistry.executeTool(toolCall.function.name, toolCall.function.arguments);
+      const result = await toolRegistry.executeTool(
+        toolCall.function.name,
+        toolCall.function.arguments,
+      );
       messages.push({ role: "tool", content: result, toolCallId: toolCall.id });
     }
   } else {
@@ -131,6 +138,7 @@ while (iteration < maxIterations) {
 ```
 
 ### Streaming Pattern (OllamaProvider)
+
 ```typescript
 async *chatCompletionStream(request: ChatCompletionRequest): AsyncGenerator<StreamChunk> {
   const response = await fetch(url, { body: JSON.stringify(body) });
@@ -158,6 +166,7 @@ async *chatCompletionStream(request: ChatCompletionRequest): AsyncGenerator<Stre
 ```
 
 ### Tool Pattern
+
 ```typescript
 export class ExampleTool implements Tool {
   name = "example_tool";
@@ -165,9 +174,9 @@ export class ExampleTool implements Tool {
   parameters = {
     type: "object",
     properties: {
-      param1: { type: "string", description: "Parameter description" }
+      param1: { type: "string", description: "Parameter description" },
     },
-    required: ["param1"]
+    required: ["param1"],
   };
 
   async execute(params: unknown): Promise<ToolResult> {
@@ -183,6 +192,7 @@ export class ExampleTool implements Tool {
 ```
 
 ### Registry Pattern (ToolRegistry, HookManager)
+
 - Use `Map<string, T>` for storage
 - `register(item): void` - Add item
 - `get(name): T | undefined` - Retrieve item
@@ -190,11 +200,13 @@ export class ExampleTool implements Tool {
 - `executeTool(name, params)` - Execute with error handling
 
 ### Configuration Priority
+
 1. **File-based**: `.kairos/config.json` (highest priority)
 2. **Environment variables**: OPENAI_API_KEY, OLLAMA_BASE_URL, etc.
 3. **Defaults**: Hardcoded fallbacks in code
 
 ### Error Handling
+
 - Always return `{ success: boolean, output?: string, error?: string }` for tool results
 - Try-catch around async operations
 - Log errors with context: `console.error("Failed to initialize context manager:", error);`
@@ -203,6 +215,7 @@ export class ExampleTool implements Tool {
 ## Testing Approach
 
 ### Framework: Bun Test
+
 ```bash
 bun test                    # All tests
 bun test tests/tools.test.ts  # Specific test file
@@ -210,6 +223,7 @@ bun test --watch            # Watch mode
 ```
 
 ### Test Structure
+
 ```typescript
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 
@@ -238,11 +252,13 @@ describe("ComponentName", () => {
 ```
 
 ### Test Coverage
+
 - **315 tests / 671 assertions** across all components
 - Test directories: `/tmp/lunacode-test-*` (isolated, auto-cleanup)
 - Test phases: Tools, Providers, Streaming, Context, CircuitBreaker, Fallback, TaskClassifier, ModelRouter, Hooks, SubAgent, Checkpoint, Diff, Approval, MCP, Daemon, Security, Benchmark, CodingTask
 
 ### Key Test Files
+
 - `tests/tools.test.ts` - ToolRegistry and 7 core tools
 - `tests/ollama-provider.test.ts` - Native API, 6 text-extraction patterns
 - `tests/security.test.ts` - 15 dangerous commands blocked, 10 safe commands allowed
@@ -252,85 +268,104 @@ describe("ComponentName", () => {
 ## Important Gotchas & Non-Obvious Patterns
 
 ### 1. Ollama Tool Calling - Dual Mode
+
 **OllamaProvider supports BOTH native tool calling and text extraction:**
+
 - **Native mode**: Send `tools` parameter to `/api/chat` (OpenAI-compatible)
 - **Text-extraction fallback**: Inject tool instructions into system prompt, extract from response text
 
 **Automatic fallback logic:**
+
 ```typescript
 // If model returns 400 Bad Request OR empty response
 if (response.status === 400 || (contentLen === 0 && nativeToolCalls === 0)) {
-  useNativeTools = false;  // Switch to text extraction permanently
+  useNativeTools = false; // Switch to text extraction permanently
   return chatCompletionWithTextExtraction(request);
 }
 ```
 
 **Text extraction supports 6 patterns:**
+
 1. `<tool_call>...</tool_call>` tags
-2. ```json ...``` code blocks
+2. `json ...` code blocks
 3. `[TOOL_CALLS] [...]` (Mistral format)
 4. `Tool call: name{...}` (Gemma format)
 5. Array format: `[{"name": "...", "arguments": {...}}]`
 6. Raw JSON: `{"name": "...", "arguments": {...}}`
 
 ### 2. Context Window Management - CJK Token Estimation
+
 **TokenCounter uses different ratios for CJK vs ASCII:**
+
 - CJK characters (漢字・ひらがな・カタカナ): ~0.67 tokens/char
 - ASCII characters: ~0.25 tokens/char
 - Message overhead: 4 tokens for role/name + 2 tokens for content start
 
 **ContextManager automatically trims messages:**
+
 - Always keeps system message
 - Removes oldest non-system messages first
 - Use `fitMessages(messages, maxTokens)` before LLM calls
 
 ### 3. Sub-Agent Tool Filtering
+
 **Sub-agents have restricted tool access:**
+
 - Main agent: All tools available
 - Sub-agent: Only `allowedTools` list (e.g., `["read_file", "glob", "grep"]`)
 - `delegate_task` is NOT registered in sub-agents (prevents infinite recursion)
 - Roles: `explorer` (read-only), `worker` (write+execute), `reviewer` (read-only)
 
 ### 4. Retry Logic for Missing Tool Calls
+
 **AgentLoop retries (max 2 times) when:**
+
 - `iteration <= 3` (early phase only)
 - `content.length < 200` (short response = not task completion)
 - No `tool_calls` detected
 
 **Retry prompts include specific examples:**
+
 ```typescript
 const retryPrompts = [
   `You did not use any tools. Examples:
    {"name": "read_file", "arguments": {"path": "src/index.ts"}}
    {"name": "delegate_task", "arguments": {"tasks": [...]}}`,
   `IMPORTANT: Output ONE tool call in this exact format:
-   {"name": "TOOL_NAME", "arguments": {ARGUMENTS_HERE}}`
+   {"name": "TOOL_NAME", "arguments": {ARGUMENTS_HERE}}`,
 ];
 ```
 
 ### 5. Checkpoint & Approval Flow
+
 **Before write tools (`write_file`, `edit_file`, `bash`):**
+
 1. **Checkpoint**: `CheckpointManager.create("Before: tool_name(args)")` → Git commit
 2. **Approval**: `ApprovalManager.checkApproval(toolName, args, riskLevel)` → Show diff
 3. **Execute**: Tool runs only if approved
 
 **Risk levels:**
+
 - `HIGH`: `write_file`, `edit_file`, `bash` with write commands
 - `MEDIUM`: Most other operations
 - `LOW`: `read_file`, `glob`, `grep`, `git` read-only
 
 ### 6. Memory System - 3 Layers
+
 - **Main memory**: `.kairos/memory.md` - Recent context (auto-compact)
 - **Topic files**: `.kairos/topics/*.md` - Long-term storage by topic
 - **Raw logs**: `.kairos/logs/*.log` - Unprocessed logs for AutoDream
 
 **Auto-compaction triggers:**
+
 - When memory exceeds `maxContextLines` (default: 200)
 - `microCompact()` after each agent loop
 - `autoCompact()` when threshold exceeded → creates topic files
 
 ### 7. Hook System - 11 Events
+
 **Lifecycle hooks in HookManager:**
+
 - `session:start`, `session:end`
 - `tool:before`, `tool:after`
 - `iteration:start`, `iteration:end`
@@ -338,52 +373,65 @@ const retryPrompts = [
 - `mcp:connect`, `mcp:disconnect`
 
 **Features:**
+
 - Priority-based execution (lower number = higher priority)
 - Can `abort()` execution
 - Can `modifyArgs()` for tool calls
 - File-based hooks in `.kairos/hooks.json` with variable expansion
 
 ### 8. Circuit Breaker Pattern
+
 **CircuitBreaker prevents cascading failures:**
+
 - **State transitions**: `closed` → `open` → `half-open` → `closed`
 - **Failure threshold**: 3 failures → `open`
 - **Reset timeout**: 60 seconds → `half-open`
 - **Open state**: Immediately returns error (no API call)
 
 ### 9. MCP Integration - JSON-RPC over stdio
+
 **MCP (Model Context Protocol) connects to external servers:**
+
 - JSON-RPC 2.0 protocol over stdio
 - Tools automatically registered with namespace (e.g., `server:tool_name`)
 - `.kairos/mcp.json` configures servers
 - `MCPClientManager` manages connections and lifecycle
 
 ### 10. Skill System - Auto-Detection
+
 **Skills are auto-activated by trigger keywords:**
+
 - Skill directory: `.kairos/skills/skill-name/`
 - `skill.json`: Contains `triggers: ["keyword1", "keyword2"]`
 - `SKILL.md`: Instructions injected into system prompt when active
 - Auto-detection: Search user input for trigger keywords → activate skill
 
 ### 11. Daemon - 60s Tick Loop
+
 **KAIROS Daemon runs autonomously:**
+
 - Tick interval: 60 seconds
 - Events: `tick`, `checkpoint`, `dream`, `notify`
 - AutoDream: Background memory consolidation during idle time
 - PID stored in `.kairos/daemon.pid` for process management
 
 ### 12. File Path Handling
+
 - **Use `path.join()`** for cross-platform paths
 - **Absolute paths** required for file tools
 - Current working directory: `process.cwd()`
 - `.kairos/` directory: Project-specific data (config, memory, skills)
 
 ### 13. Environment Variable Priority
+
 **Provider detection order (ConfigManager):**
+
 1. Check `.kairos/config.json` → `llm.provider`
 2. Check env vars: `OPENAI_API_KEY`, `ZAI_API_KEY`, `OLLAMA_BASE_URL`
 3. Fallback to default provider (ollama)
 
 **Supported env vars:**
+
 - `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`
 - `ZAI_API_KEY`, `ZAI_BASE_URL`, `ZAI_MODEL`
 - `OLLAMA_BASE_URL`, `OLLAMA_MODEL`
@@ -391,13 +439,16 @@ const retryPrompts = [
 - `LUNACODE_API_KEY` (alias for OpenAI)
 
 ### 14. Import Extension - ALWAYS .js
+
 **Critical**: TypeScript `moduleResolution: "bundler"` requires `.js` extensions
+
 ```typescript
-import { AgentLoop } from "./agents/AgentLoop.js";  // Correct
-import { AgentLoop } from "./agents/AgentLoop";       // Wrong!
+import { AgentLoop } from "./agents/AgentLoop.js"; // Correct
+import { AgentLoop } from "./agents/AgentLoop"; // Wrong!
 ```
 
 ### 15. Documentation Language
+
 - **Japanese is primary** in comments and docstrings
 - README, ARCHITECTURE.md, USER_GUIDE.md are in Japanese
 - Code comments and docs are Japanese (e.g., `// ストリーミング対応チャットコンプリション`)
@@ -405,6 +456,7 @@ import { AgentLoop } from "./agents/AgentLoop";       // Wrong!
 ## Configuration Files
 
 ### `.kairos/config.json` (Project-specific)
+
 ```json
 {
   "llm": {
@@ -446,6 +498,7 @@ import { AgentLoop } from "./agents/AgentLoop";       // Wrong!
 ```
 
 ### `.kairos/hooks.json` (Lifecycle hooks)
+
 ```json
 {
   "hooks": [
@@ -464,6 +517,7 @@ import { AgentLoop } from "./agents/AgentLoop";       // Wrong!
 ## Memory System Details
 
 ### 3-Layer Architecture
+
 1. **Main memory** (`.kairos/memory.md`)
    - Recent context and interactions
    - Auto-compacted when > 200 lines
@@ -480,12 +534,13 @@ import { AgentLoop } from "./agents/AgentLoop";       // Wrong!
    - Deleted after processing
 
 ### Search & Retrieval
+
 ```typescript
 // MemorySystem.searchMemory(query, limit) returns:
 interface SearchResult {
   content: string;
   source: "memory" | "topic" | "log";
-  relevance: number;  // 0-1
+  relevance: number; // 0-1
   timestamp: Date;
 }
 ```
@@ -493,7 +548,9 @@ interface SearchResult {
 ## Debugging Tips
 
 ### Enable Debug Logging
+
 Many components log debug messages with `[DEBUG]` prefix:
+
 ```typescript
 console.log(`[DEBUG] Ollama request (native): tools=${...}, model=${...}`);
 ```
@@ -501,20 +558,24 @@ console.log(`[DEBUG] Ollama request (native): tools=${...}, model=${...}`);
 ### Common Issues
 
 **1. Ollama connection refused:**
+
 - Check `OLLAMA_BASE_URL` environment variable
 - Verify Ollama is running: `curl http://localhost:11434/api/tags`
 
 **2. Tool calls not detected:**
+
 - Check if model supports tool calling (native mode)
 - Verify retry logic is triggering (check logs for `[DEBUG] No tool calls detected`)
 - Manual retry: Use text extraction patterns
 
 **3. Context window exceeded:**
+
 - Check ModelRegistry for correct context length
 - Verify TokenCounter is estimating correctly (CJK vs ASCII)
 - Review ContextManager.fitMessages() logs
 
 **4. Sub-agent recursion:**
+
 - Ensure `delegate_task` is NOT registered in sub-agents
 - Check `isSubAgent` flag in AgentLoop constructor
 - Verify `filterByAllowed()` is called for sub-agents
@@ -545,16 +606,17 @@ Skills are auto-discovered from `.kairos/skills/<skill-name>/` directories. Each
 
 ```typescript
 interface SkillDefinition {
-  name: string;           // Unique skill identifier
-  description: string;    // Human-readable description
-  triggers: string[];     // Keywords that activate this skill
-  script: string;         // Relative path to executable script
-  timeout?: number;       // Execution timeout in ms (default: 30000)
-  env?: Record<string, string>;  // Additional environment variables
+  name: string; // Unique skill identifier
+  description: string; // Human-readable description
+  triggers: string[]; // Keywords that activate this skill
+  script: string; // Relative path to executable script
+  timeout?: number; // Execution timeout in ms (default: 30000)
+  env?: Record<string, string>; // Additional environment variables
 }
 ```
 
 **Example (`skill.json`)**:
+
 ```json
 {
   "name": "lint-check",
@@ -569,14 +631,15 @@ interface SkillDefinition {
 
 The following variables are injected into the skill's process environment:
 
-| Variable | Value |
-|---|---|
+| Variable       | Value                                          |
+| -------------- | ---------------------------------------------- |
 | `PROJECT_ROOT` | Absolute path to the current project directory |
-| `SKILL_NAME` | The skill's name as defined in `skill.json` |
-| `KAIROS_DIR` | Absolute path to the `.kairos/` directory |
-| `SESSION_ID` | Unique ID of the current agent session |
+| `SKILL_NAME`   | The skill's name as defined in `skill.json`    |
+| `KAIROS_DIR`   | Absolute path to the `.kairos/` directory      |
+| `SESSION_ID`   | Unique ID of the current agent session         |
 
 **Example (`run.sh`)**:
+
 ```bash
 #!/bin/bash
 set -e
@@ -615,6 +678,7 @@ PROJECT_ROOT=$(pwd) SKILL_NAME=lint-check bash .kairos/skills/lint-check/run.sh
 See [docs/ADD_PROVIDER.md](docs/ADD_PROVIDER.md) for a complete step-by-step guide on adding a new LLM provider.
 
 **Quick summary:**
+
 1. Create provider class implementing `ILLMProvider` interface
 2. Add provider type to `LLMProviderType` in `LLMProvider.ts`
 3. Register in `LLMProviderFactory.createProvider()`
