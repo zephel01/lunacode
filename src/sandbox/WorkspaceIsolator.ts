@@ -17,7 +17,7 @@
  *   await ws.cleanup();                 // workspace を消す
  */
 
-import { mkdir, rm, access, readdir, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, access, readdir, stat } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import * as path from "node:path";
 
@@ -37,6 +37,7 @@ import {
   getStrategy,
   runCommand,
 } from "./strategies.js";
+import { parseGitignore } from "./patternMatch.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // 定数
@@ -96,7 +97,14 @@ export class WorkspaceIsolator {
       ? (config.basePath as string)
       : path.join(origin, config.basePath ?? DEFAULT_BASE_PATH);
     const target = path.join(basePath, params.taskId);
-    const excludePatterns = mergeExclude(config.excludePatterns);
+    const gitignorePatterns =
+      config.respectGitignore === false
+        ? []
+        : await readGitignorePatterns(origin);
+    const excludePatterns = mergeExclude(
+      config.excludePatterns,
+      gitignorePatterns,
+    );
 
     // 既に存在すれば事故防止で失敗させる (呼び出し側が意識してクリーンアップする)
     if (await pathExists(target)) {
@@ -237,12 +245,42 @@ async function selectStrategy(
 // 除外パターン結合
 // ────────────────────────────────────────────────────────────────────────────
 
-function mergeExclude(userPatterns?: string[]): string[] {
-  const combined = new Set<string>(DEFAULT_EXCLUDE);
-  for (const p of userPatterns ?? []) {
-    combined.add(p);
+function mergeExclude(
+  userPatterns?: string[],
+  gitignorePatterns?: string[],
+): string[] {
+  // Phase 27: 合流順は [ユーザー設定] → [.gitignore] → [DEFAULT_EXCLUDE]。
+  // 否定 (`!foo`) が効くのは「最後に適用されたパターン」の極性なので、順序が意味を
+  // 持つ。DEFAULT_EXCLUDE を最後に入れることで gitignore の `!node_modules/keep`
+  // のような例外は DEFAULT_EXCLUDE に塗り潰されてしまうが、Tier 1 の目的 (workspace を
+  // 軽量に保つ) としてはこれで正しい。ユーザーが本気で例外を効かせたい場合は
+  // excludePatterns 側で明示的に否定する必要がある。
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (p: string) => {
+    if (!p || seen.has(p)) return;
+    seen.add(p);
+    out.push(p);
+  };
+  for (const p of userPatterns ?? []) add(p);
+  for (const p of gitignorePatterns ?? []) add(p);
+  for (const p of DEFAULT_EXCLUDE) add(p);
+  return out;
+}
+
+/**
+ * `<origin>/.gitignore` を読み、パターン配列として返す (Phase 27)。
+ * ファイルが無い場合や読み取り失敗時は空配列。サブディレクトリ `.gitignore` は
+ * 現状スコープ外 (プロジェクトルート 1 枚のみ)。
+ */
+async function readGitignorePatterns(origin: string): Promise<string[]> {
+  const p = path.join(origin, ".gitignore");
+  try {
+    const text = await readFile(p, "utf8");
+    return parseGitignore(text);
+  } catch {
+    return [];
   }
-  return Array.from(combined);
 }
 
 // ────────────────────────────────────────────────────────────────────────────

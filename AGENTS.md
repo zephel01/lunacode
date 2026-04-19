@@ -71,8 +71,7 @@ src/
 │   └── ConfigManager.ts   # Config loading (file + defaults)
 ├── security/
 │   ├── AccessControl.ts   # RBAC
-│   ├── SandboxEnvironment.ts  # @deprecated (Phase 25) — use src/sandbox/ instead
-│   └── UndercoverMode.ts  # Stealth mode
+│   └── UndercoverMode.ts  # Stealth mode (src/sandbox/ for workspace isolation)
 ├── buddy/
 │   └── BuddyMode.ts      # AI pet companion
 ├── notifications/

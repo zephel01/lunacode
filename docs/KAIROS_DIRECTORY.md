@@ -39,11 +39,8 @@ Aider の `.aider*` や OpenCode の `.opencode/` に相当する、LunaCode の
     │       ├── SKILL.md
     │       └── tools.ts         # 任意
     │
-    ├── sandbox/                 # Tier 1 workspace 分離 + (@deprecated Phase 25) 旧 SandboxEnvironment 作業領域
-    │   ├── temp/                # @deprecated: 旧 SandboxEnvironment
-    │   ├── workspace/           # ★ Tier 1: タスクごとの隔離コピー (<taskId>/)
-    │   ├── logs/                # @deprecated: 旧 SandboxEnvironment
-    │   └── cache/               # @deprecated: 旧 SandboxEnvironment
+    ├── sandbox/                 # Tier 1 workspace 分離 (Phase 27 で旧 SandboxEnvironment は削除)
+    │   └── workspace/           # ★ Tier 1: タスクごとの隔離コピー (<taskId>/)
     │
     └── test-report-<provider>-<ts>.json   # `lunacode test-provider --save` の出力
 ```
@@ -75,7 +72,6 @@ Aider の `.aider*` や OpenCode の `.opencode/` に相当する、LunaCode の
 | `skills/<name>/SKILL.md`   | user    | ✓   | Markdown     | `SkillLoader`             | LLM に注入する指示書                                                                                               |
 | `skills/<name>/tools.ts`   | user    | ✓   | TypeScript   | `SkillLoader`             | スキル固有の追加ツール（任意）                                                                                     |
 | `sandbox/workspace/`       | runtime | ✗   | ディレクトリ | `WorkspaceIsolator`       | Tier 1 サンドボックスの作業コピー（タスクごとに `<taskId>/`）                                                      |
-| `sandbox/{temp,logs,cache}/` | runtime | ✗   | ディレクトリ | `SandboxEnvironment` **(@deprecated Phase 25)** | 旧サンドボックス実行の作業領域。新規コードから使わないこと                                                         |
 | `test-report-*.json`       | runtime | ✗   | JSON         | `ProviderTester`          | `lunacode test-provider --save` の出力                                                                             |
 
 ---
@@ -257,25 +253,20 @@ Tier 1 の `WorkspaceIsolator` が使う作業領域です。
 
 ```text
 .kairos/sandbox/
-├── workspace/               # Tier 1: タスクごとの隔離コピー（★ 現役）
-│   └── <taskId>/            #   ← agent が chdir する本番作業ディレクトリ
-├── temp/                    # @deprecated Phase 25: 旧 SandboxEnvironment の一時ファイル
-├── logs/                    # @deprecated Phase 25: 旧 SandboxEnvironment の実行ログ
-└── cache/                   # @deprecated Phase 25: 旧 SandboxEnvironment のキャッシュ
+└── workspace/               # Tier 1: タスクごとの隔離コピー
+    └── <taskId>/            #   ← agent が chdir する本番作業ディレクトリ
 ```
 
-現行で使われているのは `workspace/` のみ:
+**`WorkspaceIsolator` (Tier 1)** — LLM の編集から origin を守るための作業ツリー分離。
+`config.json` の `sandbox.tier = "workspace"` で有効化し、各タスクごとに
+`workspace/<taskId>/` が作られて agent が chdir します。詳細は [`docs/SANDBOX.md`](./SANDBOX.md)。
 
-- **`WorkspaceIsolator` (Tier 1)** — LLM の編集から origin を守るための作業ツリー分離。
-  `config.json` の `sandbox.tier = "workspace"` で有効化し、各タスクごとに
-  `workspace/<taskId>/` が作られて agent が chdir します。詳細は [`docs/SANDBOX.md`](./SANDBOX.md)。
+> **旧 `SandboxEnvironment`（Phase 4.2）の `temp/` / `logs/` / `cache/`** は
+> Phase 25 で `@deprecated` 化され、Phase 27 (2026-04-19) で物理削除されました。
+> ルール判定が文字列 `includes()` のみでセキュリティ機能として実効性が乏しかったためです。
+> 既存の `.kairos/sandbox/{temp,logs,cache}/` が残っていれば手動で削除して構いません。
 
-`temp/` / `logs/` / `cache/` は旧 `SandboxEnvironment`（Phase 4.2）が使っていましたが、
-Phase 25 (2026-04-19) で `@deprecated` 化されました。ルール判定が文字列 `includes()`
-のみでセキュリティ機能として実効性が乏しかったためです。新規コードから使わないで
-ください。
-
-いずれも **`.gitignore` 推奨**（ランタイム専用領域）。
+`.gitignore` 推奨（ランタイム専用領域）。
 
 ---
 

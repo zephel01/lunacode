@@ -96,19 +96,57 @@ __pycache__
 .cache
 ```
 
-例: ビルド成果物を追加で除外したい場合
+### 4.1 パターン構文（Phase 27 から gitignore 互換）
+
+パターンは `.gitignore` とほぼ同じセマンティクスで評価されます（実装は
+`src/sandbox/patternMatch.ts`）。
+
+| 記法              | 意味                                                                 |
+| ----------------- | -------------------------------------------------------------------- |
+| `foo`             | 任意深さの `foo` (basename 一致)                                     |
+| `/foo`            | origin 直下の `foo` のみ (anchored)                                  |
+| `foo/`            | ディレクトリ `foo` のみマッチ (末尾 `/` で dirOnly)                  |
+| `*.log`           | `/` を跨がない任意文字列 + `.log`                                    |
+| `?`               | `/` 以外の 1 文字                                                    |
+| `**`              | 任意深さ (globstar)                                                  |
+| `**/foo.txt`      | 任意ディレクトリ直下の `foo.txt`                                     |
+| `dist/**`         | `dist/` サブツリー全体                                               |
+| `a/**/z`          | `a/z`、`a/b/z`、`a/b/c/z` …                                          |
+| `!keep.log`       | 先行パターンが除外したエントリを復活させる（gitignore 互換）         |
+
+> **非対応**: 文字クラス `[abc]` / 否定クラス `[^a]` / brace expansion `{a,b}` は
+> サポートしません。必要なら明示的に展開してください。
+
+`matchAny()` は「最後にマッチしたパターンの極性が勝つ」gitignore 仕様で判定します。
+否定を効かせたい場合、通常パターンの **後に** 否定パターンを置いてください。
+
+### 4.2 `.gitignore` 自動取り込み
+
+`workspace.respectGitignore`（既定 `true`、Phase 27 追加）が有効な場合、
+`origin/.gitignore` の内容が自動で `excludePatterns` に合流します。マージ順は:
+
+1. ユーザが `excludePatterns` で指定したもの
+2. `origin/.gitignore` の内容（`respectGitignore: false` で無効化）
+3. 組み込みの DEFAULT_EXCLUDE（`node_modules` 等）
+
+サブディレクトリの `.gitignore` は再帰的には読み込みません（プロジェクト root の
+1 枚のみ）。`negation` の効き目を確認したい場合は 4.1 の順序に注意してください。
+
+### 4.3 設定例
 
 ```json
 {
   "sandbox": {
     "workspace": {
-      "excludePatterns": ["target", "out", ".parcel-cache"]
+      "excludePatterns": ["target", "out/**", "*.log", "!ci.log"],
+      "respectGitignore": true
     }
   }
 }
 ```
 
-`git-worktree` は `.gitignore` + index の情報を使うため、この設定は作用しません。
+`git-worktree` は `.gitignore` + index の情報を使うため、`excludePatterns` は
+作用しません。
 
 ---
 
@@ -140,6 +178,7 @@ __pycache__
       "autoMerge": false,
       "keepOnFailure": true,
       "excludePatterns": ["target"],
+      "respectGitignore": true,
       "chdirOnActivate": true
     }
   }
@@ -154,7 +193,8 @@ __pycache__
 | `workspace.basePath`          | string                       | `.kairos/sandbox/workspace` | workspace 作成先（origin 相対 or 絶対）                                              |
 | `workspace.autoMerge`         | boolean                      | `false`                     | 成功時に自動で本体に書き戻す（現状は要注意）                                         |
 | `workspace.keepOnFailure`     | boolean                      | `true`                      | 失敗時に workspace を残してデバッグ可能にする                                        |
-| `workspace.excludePatterns`   | string[]                     | 上記既定                    | ユーザ指定は既定に「追加」される                                                     |
+| `workspace.excludePatterns`   | string[]                     | 上記既定                    | gitignore 互換 glob パターン。ユーザ指定は `.gitignore` / 既定に「追加」される       |
+| `workspace.respectGitignore`  | boolean                      | `true`                      | `origin/.gitignore` を自動で取り込むか（Phase 27 追加）                              |
 | `workspace.chdirOnActivate`   | boolean                      | `true`                      | workspace 作成時に `process.chdir()` を呼ぶか。`false` なら cwd を変えず basePath 伝播 |
 
 ---
@@ -303,11 +343,11 @@ Node/Rust のように CoW が効く FS なら `strategy: "apfs-clone"` / `refli
 
 ---
 
-## 11. 旧 `SandboxEnvironment` について（Phase 25 で非推奨）
+## 11. 旧 `SandboxEnvironment` について（Phase 27 で削除）
 
 `src/security/SandboxEnvironment.ts` にはかつて別系統のサンドボックス実装がありました
-（Phase 4.2 由来）。以下の理由で **Phase 25 (2026-04-19) から `@deprecated` となり、
-セキュリティ機能として使用するべきではありません**:
+（Phase 4.2 由来）。Phase 25 (2026-04-19) で `@deprecated` 化し、**Phase 27 で物理削除**
+しました（以下の理由で、セキュリティ機能として実効性が乏しかったため）:
 
 - ルール判定が `command.includes(pattern)` のみ。`rm  -rf /`（二重空白）、
   `/bin/rm -rf /`、`$(echo rm) -rf /` 等で容易にバイパス可能
@@ -316,10 +356,9 @@ Node/Rust のように CoW が効く FS なら `strategy: "apfs-clone"` / `refli
 - `allowNetwork` / `maxMemoryUsage` は設定を受け取るのみで何も強制しない
 - 「サンドボックス」を謳っているが実体は `cwd` 変更と環境変数追加のみ
 
-後方互換のためファイル自体は残していますが、コンストラクタ呼び出し時に警告ログが
-出ます。新規コードは本ドキュメントで説明する `WorkspaceIsolator`（Tier 1）を使用して
-ください。プロセスレベルの隔離が必要な場合は Phase 26 以降で追加予定の Tier 2 /
-Tier 3 を待ってください。
+作業ツリー分離は本ドキュメントで説明する `WorkspaceIsolator`（Tier 1）を使用して
+ください。プロセスレベルの隔離が必要な場合は、今後追加予定の Tier 2 / Tier 3 を
+待ってください。
 
 ---
 

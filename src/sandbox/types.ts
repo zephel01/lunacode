@@ -32,8 +32,20 @@ export interface WorkspaceSandboxConfig {
   autoMerge?: boolean;
   /** 失敗時に workspace を残すか (デバッグ用)。既定 true */
   keepOnFailure?: boolean;
-  /** クローン時に除外するパス (basename or relative path) */
+  /**
+   * クローン時に除外するパス。
+   * Phase 27 以降は gitignore 互換の glob パターンを受け付ける:
+   *   - `*` / `?` / `**` (globstar) / `!negation` / 末尾 `/` (dirOnly) / 先頭 `/` (anchored)
+   *   - `/` を含まない単純名 (`node_modules` 等) は任意深さで basename にマッチ。
+   *   - 文字クラス `[abc]` と brace expansion `{a,b}` は未対応。
+   */
   excludePatterns?: string[];
+  /**
+   * `origin/.gitignore` を読み込んで excludePatterns に合流させるか。既定 `true`。
+   * Phase 27 から追加。サブディレクトリの `.gitignore` は再帰的には読み込まない
+   * (プロジェクトルートの 1 枚のみを対象とする) 簡易実装。
+   */
+  respectGitignore?: boolean;
   /**
    * workspace 作成時にプロセス全体の `process.chdir(workspace.path)` を呼ぶか。
    * 既定 `true` (後方互換)。

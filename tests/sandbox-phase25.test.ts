@@ -6,18 +6,14 @@
  * - ReflinkStrategy.isSupported(): プローブが origin にゴミを残さない
  * - GitWorktreeStrategy: ブランチ名に random suffix が入っている / 既存の
  *   `sandbox/<basename>` 同名ブランチは削除されない
- * - SandboxEnvironment: コンストラクタで deprecation 警告を出す
+ *
+ * Phase 27 メモ: かつてこのファイルには「SandboxEnvironment のコンストラクタで
+ * deprecation 警告が出る」テストが §4 としてあった。Phase 27 で
+ * `src/security/SandboxEnvironment.ts` を物理削除したため、それに伴い §4 も削除
+ * 済み。ファイル名 "phase25" は歴史的理由でそのまま。
  */
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  mock,
-  spyOn,
-} from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   mkdtempSync,
   writeFileSync,
@@ -38,7 +34,6 @@ import {
   GitWorktreeStrategy,
   ReflinkStrategy,
 } from "../src/sandbox/strategies.js";
-import { SandboxEnvironment } from "../src/security/SandboxEnvironment.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // 1. filesDiffer: mtime fast-path 削除の検証
@@ -247,42 +242,4 @@ describe("GitWorktreeStrategy - Phase 25: ブランチ名保護", () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────────────────────
-// 4. SandboxEnvironment: 初回 new で deprecation 警告
-// ────────────────────────────────────────────────────────────────────────────
-
-describe("SandboxEnvironment - Phase 25: deprecation 警告", () => {
-  test("初回コンストラクタ呼び出しで console.warn に非推奨メッセージが出る", () => {
-    // Phase 25 では static warned フラグで 1 プロセス 1 回だけ警告する設計。
-    // テスト実行順に依存しないよう、フラグをリセットする手段がない場合は
-    // 警告が "一度は出ている" ことを console.warn の spy で検証する。
-    // (他テストで既に new されている可能性に備え、追加の new を 2 回試みる)
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      // 1 回目: プロセス内で初回なら警告、2回目以降なら出ない (フラグ)
-      new SandboxEnvironment({ enabled: false });
-      new SandboxEnvironment({ enabled: false });
-
-      // spy 以前に static.warned が true になっていた場合は両方とも
-      // console.warn が呼ばれていない可能性がある。その場合はこのテストだけ
-      // skip 扱いにする (プロセス全体では警告が 1 回出ていることが保証される)。
-      const calls = warnSpy.mock.calls;
-      if (calls.length === 0) {
-        // 既にプロセス内で警告済み: テスト単独の検証はできないが異常ではない
-        return;
-      }
-
-      // 警告メッセージに key phrase が含まれる
-      const firstArg = calls[0]?.[0];
-      expect(typeof firstArg).toBe("string");
-      expect(firstArg as string).toMatch(/deprecated/i);
-      expect(firstArg as string).toMatch(/SandboxEnvironment/);
-      expect(firstArg as string).toMatch(/WorkspaceIsolator/);
-
-      // 2 回目呼び出しで追加警告が出ない (static flag で抑制される)
-      expect(calls.length).toBe(1);
-    } finally {
-      warnSpy.mockRestore();
-    }
-  });
-});
+// 旧 §4 (SandboxEnvironment deprecation 警告) は Phase 27 でファイル削除とともに除去。

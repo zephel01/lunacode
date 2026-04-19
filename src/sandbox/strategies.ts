@@ -26,6 +26,7 @@ import type {
   WorkspaceStrategy,
   WorkspaceStrategyImpl,
 } from "./types.js";
+import { compileAll, matchAny, type CompiledPattern } from "./patternMatch.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // 共通ヘルパー
@@ -88,30 +89,50 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
-/** basename が除外パターンに含まれるか */
-function isExcluded(relPath: string, excludePatterns: string[]): boolean {
+/**
+ * 相対パスが除外パターンにマッチするか (Phase 27 から glob/gitignore 相当)。
+ *
+ * - `patternMatch.ts::matchAny` を使用し、gitignore 互換のセマンティクスで評価する。
+ * - `isDirectory` はオプション。未指定の場合はディレクトリ専用パターン (`dir/`)
+ *   はマッチしない想定 (ファイル扱い)。
+ *
+ * Phase 27: 以前は basename / 完全一致 / prefix-one-level の 3 パターンだけを
+ * ハードコードしていた。glob (`**`/`*`/`?`) とパス深度、否定パターン (`!foo`) が
+ * 使えない制限があったため、compiled CompiledPattern[] ベースに差し替えた。
+ */
+function isExcluded(
+  relPath: string,
+  compiledPatterns: CompiledPattern[],
+  isDirectory = false,
+): boolean {
   if (!relPath) return false;
   const normalized = relPath.split(path.sep).join("/");
-  const base = path.basename(relPath);
-  for (const pattern of excludePatterns) {
-    const p = pattern.replace(/\\/g, "/").replace(/\/+$/, "");
-    if (!p) continue;
-    if (base === p) return true;
-    if (normalized === p) return true;
-    if (normalized.startsWith(`${p}/`)) return true;
-  }
-  return false;
+  return matchAny(compiledPatterns, { relPath: normalized, isDirectory });
 }
 
-/** 除外パターンを考慮する fs.cp の filter */
+/**
+ * 除外パターンを考慮する fs.cp の filter (Phase 27: glob 対応)。
+ *
+ * `fs.cp` の filter は同期呼び出しなので、`isDirectory` は `lstatSync` で判定する。
+ * 外部からは `excludePatterns: string[]` を受け取り、内部で一度だけコンパイルする。
+ */
 export function makeExcludeFilter(
   origin: string,
   excludePatterns: string[],
 ): (src: string) => boolean {
+  const compiled = compileAll(excludePatterns);
+  // 同期 stat が必要なのでここで動的 import しない (性能のため node:fs を直接使う)
+  const { lstatSync } = require("node:fs") as typeof import("node:fs");
   return (src) => {
     const rel = path.relative(origin, src);
     if (!rel || rel.startsWith("..")) return true; // origin 自身 / 外側は通す
-    return !isExcluded(rel, excludePatterns);
+    let isDir = false;
+    try {
+      isDir = lstatSync(src).isDirectory();
+    } catch {
+      isDir = false;
+    }
+    return !isExcluded(rel, compiled, isDir);
   };
 }
 
@@ -350,11 +371,12 @@ export const CopyStrategy: WorkspaceStrategyImpl = {
     // 置くのが正規ルートなので、手動で walk しながら target 配下をスキップする。
     await mkdir(params.target, { recursive: true });
     const targetResolved = path.resolve(params.target);
+    const compiled = compileAll(params.excludePatterns);
     await copyRecursive({
       src: params.origin,
       dst: params.target,
       origin: params.origin,
-      excludePatterns: params.excludePatterns,
+      compiled,
       targetResolved,
     });
   },
@@ -367,7 +389,8 @@ interface CopyWalkParams {
   src: string;
   dst: string;
   origin: string;
-  excludePatterns: string[];
+  /** 事前コンパイル済みパターン。毎ディレクトリ再コンパイルを避けるため param で共有 */
+  compiled: CompiledPattern[];
   targetResolved: string;
 }
 
@@ -380,8 +403,8 @@ async function copyRecursive(p: CopyWalkParams): Promise<void> {
     const dstChild = path.join(p.dst, entry.name);
     const rel = path.relative(p.origin, srcChild);
 
-    // 除外 & ターゲット自己ネスト回避
-    if (isExcluded(rel, p.excludePatterns)) continue;
+    // 除外 & ターゲット自己ネスト回避 (Phase 27: glob / gitignore 相当で判定)
+    if (isExcluded(rel, p.compiled, entry.isDirectory())) continue;
     if (path.resolve(srcChild) === p.targetResolved) continue;
 
     if (entry.isSymbolicLink()) {
@@ -415,17 +438,50 @@ async function copyRecursive(p: CopyWalkParams): Promise<void> {
 // 除外パス削除ヘルパー
 // ────────────────────────────────────────────────────────────────────────────
 
-/** target 配下から excludePatterns にマッチするパスを削除する */
+/**
+ * target 配下から excludePatterns にマッチするパスを削除する (Phase 27: glob 対応)。
+ *
+ * 旧実装はパターン文字列をリテラルパスとして `path.join(target, p)` し、その
+ * パスを直接削除する単純なものだった。これでは `**\/*.log` のような glob や、
+ * `node_modules` (深さ任意の basename) を扱えない。新実装は target を walk し、
+ * 各エントリで `matchAny()` を評価して合致したものを削除する。
+ *
+ * パフォーマンスのため、ディレクトリにマッチしたら配下を再帰せずに丸ごと削除する。
+ */
 async function pruneExcluded(
   target: string,
   excludePatterns: string[],
 ): Promise<void> {
-  for (const pattern of excludePatterns) {
-    const cleaned = pattern.replace(/\\/g, "/").replace(/\/+$/, "");
-    if (!cleaned) continue;
-    const absTarget = path.join(target, cleaned);
-    if (await pathExists(absTarget)) {
-      await rm(absTarget, { recursive: true, force: true });
+  const compiled = compileAll(excludePatterns);
+  if (compiled.length === 0) return;
+  await pruneWalk(target, "", compiled);
+}
+
+async function pruneWalk(
+  root: string,
+  rel: string,
+  compiled: CompiledPattern[],
+): Promise<void> {
+  const { readdir } = await import("node:fs/promises");
+  const here = rel ? path.join(root, rel) : root;
+  let entries;
+  try {
+    entries = await readdir(here, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const childRel = rel ? path.join(rel, entry.name) : entry.name;
+    const childAbs = path.join(root, childRel);
+    const normalized = childRel.split(path.sep).join("/");
+    const isDir = entry.isDirectory();
+    if (matchAny(compiled, { relPath: normalized, isDirectory: isDir })) {
+      // ディレクトリにマッチした場合は配下も丸ごと消す
+      await rm(childAbs, { recursive: true, force: true });
+      continue;
+    }
+    if (isDir) {
+      await pruneWalk(root, childRel, compiled);
     }
   }
 }

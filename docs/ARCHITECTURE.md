@@ -44,8 +44,7 @@ src/
 │   ├── KAIROSDaemon.ts    # 常駐デーモン
 │   └── AutoDream.ts       # バックグラウンド統合
 ├── security/
-│   ├── AccessControl.ts   # RBAC
-│   └── SandboxEnvironment.ts  # @deprecated Phase 25 (src/sandbox/ に置き換え)
+│   └── AccessControl.ts   # RBAC (workspace 隔離は src/sandbox/)
 ├── buddy/
 │   └── BuddyMode.ts      # コンパニオンAI
 ├── notifications/
